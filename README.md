@@ -41,7 +41,7 @@ macOS or Windows: install [Docker Desktop](https://www.docker.com/products/docke
 
 ```bash
 docker run -it -p 8333:8333 -v tru-data:/app/data \
-    ghcr.io/agreatopportunity/tru-node:latest --cli
+    ghcr.io/agreatopportunity/tru-node:v1.1.3 --cli
 ```
 
 That is the whole thing. The image ships with a working default config, so the
@@ -95,7 +95,7 @@ devices.
 
 ```bash
 docker run -it --gpus all -p 8333:8333 -v tru-data:/app/data \
-    ghcr.io/agreatopportunity/tru-node-gpu:latest --cli
+    ghcr.io/agreatopportunity/tru-node-gpu:v1.1.3 --cli
 ```
 
 Then pick the GPU mining option from the menu. Watch `nvidia-smi` in another
