@@ -1,12 +1,29 @@
 # TRU Blockchain — Node
 
 Run a node on the Tokenized Real Utility (TRU) blockchain. The published
-Docker image carries everything it needs, so there is nothing to compile and
+Docker images carry everything they need, so there is nothing to compile and
 no dependencies to install beyond Docker itself.
 
 ---
 
-## Quick start
+## Which image do I want?
+
+| Image | Use when |
+|---|---|
+| **`tru-node`** | Default choice. Runs anywhere, no GPU needed. Full menu, CPU mining works. |
+| **`tru-node-gpu`** | You have an **NVIDIA** GPU and want GPU mining. Everything else is identical. |
+
+Both are the same node with the same interactive menu, built from the same
+source. The only difference is that `tru-node-gpu` is compiled with OpenCL, so
+the GPU mining options do something. If you are not going to mine on a GPU,
+take `tru-node` — it has fewer moving parts.
+
+The GPU image is NVIDIA only. AMD and Intel GPUs use a different OpenCL driver
+setup and are not supported by this image.
+
+---
+
+## Quick start — CPU (`tru-node`)
 
 **1. Install Docker**
 
@@ -28,9 +45,74 @@ docker run -it -p 8333:8333 -v tru-data:/app/data \
 ```
 
 That is the whole thing. The image ships with a working default config, so the
-node will find a seed peer and begin syncing on first launch.
+node will find a seed peer and begin syncing on first launch. You should see
+the menu appear, followed by peer connection and sync activity.
 
-You should see the menu appear, followed by peer connection and sync activity.
+---
+
+## Quick start — GPU (`tru-node-gpu`)
+
+Everything above, plus the NVIDIA Container Toolkit on the host. Having the
+NVIDIA driver alone is not enough — the toolkit is what lets Docker pass the
+GPU into a container.
+
+**1. Confirm your driver works**
+
+```bash
+nvidia-smi
+```
+
+Your GPUs should be listed. If not, install the NVIDIA driver first.
+
+**2. Install the NVIDIA Container Toolkit**
+
+```bash
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
+  | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+
+curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
+  | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
+  | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+
+sudo apt update && sudo apt install -y nvidia-container-toolkit
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+```
+
+Full instructions: [NVIDIA Container Toolkit install guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+
+**3. Verify Docker can see the GPU**
+
+```bash
+docker run --rm --gpus all ubuntu:24.04 nvidia-smi
+```
+
+Your GPUs should appear again, this time from inside a container. Do not move
+on until this works — if it fails here, the node will start but find no OpenCL
+devices.
+
+**4. Run the node**
+
+```bash
+docker run -it --gpus all -p 8333:8333 -v tru-data:/app/data \
+    ghcr.io/agreatopportunity/tru-node-gpu:latest --cli
+```
+
+Then pick the GPU mining option from the menu. Watch `nvidia-smi` in another
+terminal to confirm the GPU is actually being used.
+
+---
+
+## Running both at once
+
+You can, but two things will collide:
+
+- **Port 8333.** Only one container can bind it. Give the second a different
+  host port: `-p 8334:8333`.
+- **The data volume.** The database allows a single writer, so each container
+  needs its own: `-v tru-gpu-data:/app/data`.
+
+Most people should just run one.
 
 ---
 
@@ -95,6 +177,8 @@ docker run -it -p 8333:8333 \
     -v "$(pwd)/tru.conf:/app/tru.conf:ro" \
     ghcr.io/agreatopportunity/tru-node:latest --cli
 ```
+
+On Windows PowerShell, use `${PWD}` instead of `$(pwd)`.
 
 Or use Compose, which handles the mounts for you:
 
@@ -184,13 +268,15 @@ docker run -it -p 8333:8333 -v tru-data:/app/data \
     ghcr.io/agreatopportunity/tru-node:latest --cli
 ```
 
+Same for the GPU image, substituting `tru-node-gpu` and adding `--gpus all`.
+
 Your data volume is untouched by this — the new container picks up right where
 the old one left off.
 
 Version tags are published alongside `latest` if you prefer to pin:
 
 ```bash
-docker pull ghcr.io/agreatopportunity/tru-node:v0.1.0
+docker pull ghcr.io/agreatopportunity/tru-node:v0.1.1
 ```
 
 ---
@@ -204,8 +290,11 @@ stale database lock. Use the menu's Exit option to stop the node, and detach
 with `Ctrl-P` `Ctrl-Q` rather than stopping the container. A `--daemon` mode is
 planned.
 
-**No GUI wallet in the image.** Containers have no display, so the Qt wallet is
-not included. It is available as a native build from the source repository.
+**No GUI wallet in either image.** Containers have no display, so the Qt wallet
+is not included. It is available as a native build from the source repository.
+
+**GPU image is NVIDIA only.** AMD and Intel GPUs need a different OpenCL ICD
+setup. `tru-node-gpu` will start on those systems but find no OpenCL devices.
 
 **Single seed peer.** New nodes currently bootstrap from one seed. If it is
 unreachable, sync will not start. Additional seeds are planned.
@@ -217,6 +306,22 @@ unreachable, sync will not start. Additional seeds are planned.
 **`permission denied ... docker.sock`**
 Your user is not in the `docker` group. Run `sudo usermod -aG docker $USER`
 then `newgrp docker`, or log out and back in.
+
+**`failed to discover GPU vendor from CDI: no known GPU vendor found`**
+The NVIDIA Container Toolkit is not installed, or Docker was not restarted after
+configuring it. See the GPU quick start above. Having `nvidia-smi` work on the
+host is not sufficient on its own.
+
+**GPU mining finds no devices**
+Check the toolkit is passing the driver through:
+
+```bash
+docker run --rm --gpus all ghcr.io/agreatopportunity/tru-node-gpu:latest \
+    bash -c "ls /usr/lib/x86_64-linux-gnu/ | grep nvidia-opencl"
+```
+
+`libnvidia-opencl.so.1` should be listed. If it is missing, the container is
+not receiving the driver — confirm you passed `--gpus all`.
 
 **Container exits immediately**
 Run without `-d` to see the output. Most often this means `--cli` was started
@@ -239,10 +344,15 @@ established.
 
 ---
 
-## What is in the image
+## What is in the images
 
-Built from `ubuntu:24.04`, roughly 130 MB. Contains the headless node binary
-and its runtime libraries — no compiler, no Qt, no GPU drivers. The node runs
-as an unprivileged user inside the container, not as root.
+Both are built from `ubuntu:24.04` and are roughly 130 MB. They contain the
+node binary and its runtime libraries — no compiler, no Qt, no bundled GPU
+drivers. The node runs as an unprivileged user inside the container, not as
+root.
+
+`tru-node-gpu` additionally carries the OpenCL ICD loader. The NVIDIA OpenCL
+driver itself is injected from your host at run time by the container toolkit,
+which is why the image stays small and does not pin a CUDA version.
 
 Source and build files: [github.com/agreatopportunity/TRU-DOCKER](https://github.com/agreatopportunity/TRU-DOCKER)
