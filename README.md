@@ -1,483 +1,248 @@
-# TRU Blockchain — Docker
+# TRU Blockchain — Node
 
-Run a TRU node without installing a compiler, hunting down four
-from-source libraries, or fighting a protobuf version mismatch. The image
-carries its own dependencies, so it behaves the same on Ubuntu, Debian,
-Fedora, macOS, or Windows/WSL2.
-
-Three images are provided:
-
-| Image | What it is | Needs a GPU? | Needs a terminal? |
-|---|---|---|---|
-| `tru-node` | Headless node — syncs blocks, serves peers | No | Only for `--cli` |
-| `tru-miner-cpu` | CPU miner | No | Yes |
-| `tru-miner-gpu` | OpenCL GPU miner | Yes (NVIDIA) | Yes |
-
-Most people want **`tru-node`**. Start there.
+Run a node on the Tokenized Real Utility (TRU) blockchain. The published
+Docker image carries everything it needs, so there is nothing to compile and
+no dependencies to install beyond Docker itself.
 
 ---
 
 ## Quick start
 
-```bash
-git clone <your-repo-url> tru && cd tru
+**1. Install Docker**
 
-# 1. Create your config (see "Configuration" below)
-cp tru.conf.example tru.conf
-
-# 2. Build
-docker build -t tru-node:latest .
-
-# 3. Run
-docker run -d --name tru-node \
-    -p 8333:8333 \
-    -v tru-data:/app/data \
-    -v "$(pwd)/tru.conf:/app/tru.conf:ro" \
-    tru-node:latest --cli
-```
-
-Watch it come up:
+Ubuntu / Debian:
 
 ```bash
-docker logs -f tru-node
+sudo apt update && sudo apt install -y docker.io
+sudo usermod -aG docker $USER
+newgrp docker
 ```
 
-You are looking for the P2P layer binding to 8333 and the sync thread
-starting. Stop following with `Ctrl-C` — that leaves the container running.
+macOS or Windows: install [Docker Desktop](https://www.docker.com/products/docker-desktop/).
+
+**2. Run the node**
+
+```bash
+docker run -it -p 8333:8333 -v tru-data:/app/data \
+    ghcr.io/agreatopportunity/tru-node:latest --cli
+```
+
+That is the whole thing. The image ships with a working default config, so the
+node will find a seed peer and begin syncing on first launch.
+
+You should see the menu appear, followed by peer connection and sync activity.
 
 ---
 
-## Configuration
+## Using the menu
 
-`tru.conf` is mounted read-only into the container at `/app/tru.conf`. If you
-do not mount one, the image seeds a default and prints a notice.
+`--cli` opens an interactive menu covering wallet creation, sending funds,
+mining, tokens, TRU scripts, smart contracts, and peer management. Navigate by
+entering the number or letter shown.
 
-A working peer configuration:
+To leave the container running while you do something else, press
+`Ctrl-P` then `Ctrl-Q`. Come back with:
+
+```bash
+docker attach tru-node
+```
+
+To stop the node, choose the Exit option from the menu. That lets it save
+chain state and wallet files cleanly, which `docker stop` currently does not.
+
+---
+
+## Keeping your data
+
+Everything the node writes — chain data, UTXO set, wallet files, peer list —
+lives in a Docker volume called `tru-data`. It survives container restarts,
+removals, and image updates.
+
+```bash
+docker volume inspect tru-data       # see where it lives on disk
+```
+
+Back it up before doing anything risky:
+
+```bash
+docker run --rm -v tru-data:/data -v "$(pwd)":/backup ubuntu \
+    tar czf /backup/tru-backup.tar.gz /data
+```
+
+> **Your wallet lives in this volume.** `docker volume rm tru-data` and
+> `docker compose down -v` both delete it permanently. If you have funds on
+> this node, back up first.
+
+---
+
+## Custom configuration
+
+The defaults work for syncing. Mount your own `tru.conf` if you want to change
+ports, add peers, or advertise a public address.
+
+```bash
+git clone https://github.com/agreatopportunity/TRU-DOCKER.git
+cd TRU-DOCKER
+cp tru.conf.example tru.conf
+# edit tru.conf
+```
+
+Then mount it:
+
+```bash
+docker run -it -p 8333:8333 \
+    -v tru-data:/app/data \
+    -v "$(pwd)/tru.conf:/app/tru.conf:ro" \
+    ghcr.io/agreatopportunity/tru-node:latest --cli
+```
+
+Or use Compose, which handles the mounts for you:
+
+```bash
+docker compose up -d node
+docker compose logs -f node
+docker compose down          # stop, keep data
+```
+
+### Config format
 
 ```ini
 [network]
-# Bind for the JSON-RPC server. See "RPC inside Docker" before changing.
 rpcbind=127.0.0.1
 rpcport=8332
-
-# P2P port. This is the one that matters for syncing.
 p2pPort=8333
 listen=1
 rpcMaxConnections=32
 
-# The address you advertise to other peers. Set this to your machine's
-# PUBLIC IP if you are reachable from the internet; omit or leave as your
-# LAN IP if you are behind NAT and only making outbound connections.
-externalip=203.0.113.10
+# Your public IP, if other peers should be able to reach you.
+# Leave commented out if you are behind a home router or CGNAT.
+#externalip=203.0.113.10
 
-# Seed peers to connect to on startup. Comma-separated ip:port, NO SPACES.
+# Peers to connect to on startup. Comma-separated ip:port.
 addnode=137.184.68.43:8333
 ```
 
-Three things the config parser will not forgive:
+Three parser rules that will silently break things:
 
-- **No spaces after commas** in `addnode`. The line is trimmed as a whole, not
-  per entry, so ` 198.51.100.22:8333` keeps its leading space and fails.
-- **No inline comments.** `p2pPort=8333 # main` parses the value as
-  `8333 # main`. Put comments on their own lines.
-- **IP addresses only** in `addnode` and `seeds`, not hostnames. The P2P layer
-  does not resolve names.
+- **No spaces after commas** in `addnode`. Write `1.2.3.4:8333,5.6.7.8:8333`,
+  not `1.2.3.4:8333, 5.6.7.8:8333`.
+- **No inline comments.** `p2pPort=8333 # main` is read as the literal value
+  `8333 # main`. Put comments on their own line.
+- **IP addresses only**, not hostnames. The peer layer does not resolve DNS.
 
-`seeds=` works identically to `addnode=` and both accumulate into the same
-peer list, so you can use either or both.
-
----
-
-## Running modes
-
-### Interactive menu
-
-The node's `--cli` mode draws a full-screen menu — wallet operations, mining,
-tokens, smart contracts, peer management. It reads from stdin, so it needs a
-terminal:
-
-```bash
-docker run -it --name tru-node \
-    -p 8333:8333 \
-    -v tru-data:/app/data \
-    -v "$(pwd)/tru.conf:/app/tru.conf:ro" \
-    tru-node:latest --cli
-```
-
-Detach without stopping it: `Ctrl-P` then `Ctrl-Q`. Reattach with
-`docker attach tru-node`.
-
-### Background node
-
-> **Current limitation.** The node does not yet have a true daemon mode.
-> `--cli` with no terminal attached hits EOF on stdin and will not behave
-> correctly. Until `--daemon` exists (see "Adding a --daemon mode"), run
-> detached containers with `-it` in the compose file, which allocates a TTY
-> the menu can sit on harmlessly.
-
-Once `--daemon` is implemented, the intended usage is:
-
-```bash
-docker run -d --name tru-node --restart unless-stopped \
-    -p 8333:8333 \
-    -v tru-data:/app/data \
-    -v "$(pwd)/tru.conf:/app/tru.conf:ro" \
-    tru-node:latest --daemon
-```
-
-### With the block explorer
-
-```bash
-docker run -it --name tru-node \
-    -p 8333:8333 -p 127.0.0.1:8332:8332 \
-    -v tru-data:/app/data \
-    -v "$(pwd)/tru.conf:/app/tru.conf:ro" \
-    tru-node:latest --cli --enable-explorer
-```
-
----
-
-## Compose
-
-```bash
-docker compose up -d node                    # node only
-docker compose --profile miner up -d         # + CPU miner
-docker compose --profile gpu   up -d         # + GPU miner
-docker compose logs -f node
-docker compose down                          # stop, keep data
-docker compose down -v                       # stop, DELETE chain data
-```
-
-Miner profiles are opt-in so a plain `docker compose up` never starts mining
-by surprise.
-
----
-
-## RPC inside Docker
-
-This trips people up. Inside a container, `127.0.0.1` is the *container's*
-loopback, not your machine's. So `rpcbind=127.0.0.1` plus `-p 8332:8332` gives
-you a published port that nothing is listening on.
-
-To reach RPC from the host:
-
-1. Set `rpcbind=0.0.0.0` in `tru.conf` — safe here, because the container's
-   network namespace is already isolated.
-2. Publish to your host's loopback **only**:
-   `-p 127.0.0.1:8332:8332`
-
-Then `curl http://127.0.0.1:8332/rpc` works from the host and nothing else can
-reach it.
-
-> **The RPC layer has no authentication.** Per `README_API.md`, there is no
-> username, password, or token check on any method — including wallet and
-> mining operations. Never publish 8332 to `0.0.0.0`, never put it behind a
-> public hostname, and never expose it through a tunnel without an
-> authenticating proxy in front. Publishing 8333 is fine and expected;
-> publishing 8332 is not.
+`seeds=` behaves identically to `addnode=`; both add to the same peer list.
 
 ---
 
 ## Ports
 
-| Port | Purpose | Publish publicly? |
+| Port | Purpose | Expose to the internet? |
 |---|---|---|
-| 8333 | P2P — block and transaction sync | **Yes** — this is how peers reach you |
-| 8332 | JSON-RPC — node control, wallet, mining | **No** — loopback only |
+| 8333 | Peer-to-peer sync | Yes — this is how other nodes reach you |
+| 8332 | JSON-RPC | **No** |
 
-Host firewall, if you want inbound peers:
+> **The RPC interface has no authentication.** Any method — including wallet
+> and mining operations — can be called by anyone who can reach port 8332. Do
+> not publish it, do not put it behind a public hostname, and do not tunnel it
+> without an authenticating proxy in front. Port 8333 is safe and meant to be
+> public.
+
+If you want inbound peers, open 8333 on your firewall:
 
 ```bash
 sudo ufw allow 8333/tcp
 ```
 
-Do not open 8332.
+---
+
+## Accepting inbound peers
+
+Your node syncs fine without this — outbound connections always work. Accepting
+inbound peers is optional and helps the network.
+
+To be reachable you need three things: port 8333 published (`-p 8333:8333`),
+your firewall allowing it, and a route from the internet to your machine. That
+last one is where it usually breaks:
+
+**Home router.** Forward external TCP 8333 to your machine's LAN address, then
+set `externalip` to your public IP (find it with `curl -4 ifconfig.me`).
+
+**CGNAT.** Common on Starlink, cellular, and some cable providers — your public
+IP is shared at the carrier level and port forwarding cannot work. Check your
+router's WAN address; anything starting `100.64.` through `100.127.` is CGNAT.
+There is no workaround at home. Your node still syncs normally; it just cannot
+accept incoming connections.
 
 ---
 
-## Being reachable by other peers
+## Updating
 
-Publishing 8333 lets peers connect *if they can route to your machine*. Two
-common reasons they cannot:
+```bash
+docker pull ghcr.io/agreatopportunity/tru-node:latest
+docker rm -f tru-node
+docker run -it -p 8333:8333 -v tru-data:/app/data \
+    ghcr.io/agreatopportunity/tru-node:latest --cli
+```
 
-**Behind NAT.** You need a port forward on your router: external TCP 8333 to
-your machine's LAN IP. Then set `externalip` to your public IP.
+Your data volume is untouched by this — the new container picks up right where
+the old one left off.
 
-**Behind CGNAT.** Common on Starlink, cellular, and some cable providers. Your
-"public" IP is shared at the carrier level and no port forward will work.
-Check your router's WAN address — anything in `100.64.0.0/10` is CGNAT. There
-is no fix on your end; run your public node on a VPS instead and let your home
-node connect outbound to it.
+Version tags are published alongside `latest` if you prefer to pin:
 
-Outbound connections always work, CGNAT or not. So a node behind CGNAT can
-still sync fully — it just cannot accept incoming peers.
+```bash
+docker pull ghcr.io/agreatopportunity/tru-node:v0.1.0
+```
 
 ---
 
-## Data and persistence
+## Known limitations
 
-Chain data, the UTXO set, wallet files, and peer lists live in `/app/data`,
-backed by a named Docker volume. It survives `docker rm` and image rebuilds.
+**No background mode yet.** The node currently has no daemon mode, so it needs
+a terminal attached. `docker run -d` will not work correctly, and `docker stop`
+kills the process rather than shutting it down cleanly — which can leave a
+stale database lock. Use the menu's Exit option to stop the node, and detach
+with `Ctrl-P` `Ctrl-Q` rather than stopping the container. A `--daemon` mode is
+planned.
 
-```bash
-docker volume ls                             # find it
-docker volume inspect tru-data               # where it lives on disk
-docker run --rm -v tru-data:/data -v "$(pwd)":/backup ubuntu \
-    tar czf /backup/tru-data-backup.tar.gz /data    # back it up
-```
+**No GUI wallet in the image.** Containers have no display, so the Qt wallet is
+not included. It is available as a native build from the source repository.
 
-`docker compose down -v` deletes it. So does `docker volume rm tru-data`.
-Neither is reversible.
-
-### If the node will not start with a lock error
-
-```
-FATAL ERROR: [LevelDBStorage] Unable to open/create database:
-IO error: lock data/utxo/LOCK: Resource temporarily unavailable
-```
-
-LevelDB permits a single writer. Either another container is using the same
-volume, or a previous container was killed and left a stale lock. The
-entrypoint clears stale locks automatically on start, so this almost always
-means **two containers are sharing one volume** — check with `docker ps` and
-give each its own.
-
----
-
-## GPU mining
-
-The GPU image is the least portable of the three. It needs:
-
-- an NVIDIA GPU
-- the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) on the host
-- `--gpus all` at run time
-
-```bash
-docker build -f Dockerfile.gpu -t tru-miner-gpu:latest .
-docker run -it --gpus all --name tru-miner-gpu \
-    -v tru-gpu-data:/app/data \
-    -v "$(pwd)/tru.conf:/app/tru.conf:ro" \
-    tru-miner-gpu:latest
-```
-
-Verify the GPU is visible inside the container:
-
-```bash
-docker run --rm --gpus all tru-miner-gpu:latest nvidia-smi
-```
-
-If `clGetPlatformIDs` finds no platforms, the ICD registration is the usual
-culprit — check `/etc/OpenCL/vendors/nvidia.icd` exists in the image and that
-`NVIDIA_DRIVER_CAPABILITIES` includes `compute`.
-
-**AMD or Intel GPUs** need a different base image (`rocm/dev-ubuntu-22.04` or
-Intel's compute runtime) and `--device /dev/dri --group-add video` instead of
-`--gpus`. Not provided here; the `Dockerfile.gpu` is a reasonable starting
-point to adapt.
-
----
-
-## The Qt wallet GUI
-
-**Not in these images, by design.**
-
-A container has no display. Running a Qt GUI from one means mounting the X11
-socket and forwarding `DISPLAY` — workable on Linux, awkward on macOS (needs
-XQuartz), and painful on Windows. For a wallet that users are meant to install
-and open, that is the wrong distribution channel.
-
-The GUI wallet is shipped as a **native build** instead. Build it directly:
-
-```bash
-cmake -B build -DBUILD_WITH_QT=ON -DUSE_OPENCL=ON -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j"$(nproc)" --target tru_advanced
-./build/bin/tru_advanced --gui
-```
-
-If you want the GUI in Docker anyway, on Linux:
-
-```bash
-xhost +local:docker
-docker run -it \
-    -e DISPLAY="$DISPLAY" \
-    -v /tmp/.X11-unix:/tmp/.X11-unix \
-    -v tru-data:/app/data \
-    tru-gui:latest --gui
-```
-
-That requires an image built with `-DBUILD_WITH_QT=ON` and the Qt5 runtime
-libraries installed in the runtime stage — roughly 300 MB of extra image for a
-window. Not recommended for general distribution.
-
----
-
-## The keccak library
-
-Three of the four non-repo dependencies build from source in the Dockerfile:
-`crc32c`, `ethash`, and `libwally-core`. The fourth, **keccak**, does not — the
-upstream source was not identified on the build host, only the compiled
-`libkeccak.a`.
-
-The archive is vendored in at `docker/vendor/libkeccak.a` and copied into the
-image. To populate it before your first build:
-
-```bash
-mkdir -p docker/vendor/keccak-include
-cp /usr/local/lib/libkeccak.a docker/vendor/
-
-# Find and copy the headers the build needs
-grep -rn "keccak" src/*.h src/*.cpp | grep include
-cp -r /usr/local/include/<keccak-headers> docker/vendor/keccak-include/
-```
-
-This works, but it is the one part of the build that is not reproducible from
-source. If you identify the upstream project, replace the `COPY` in the
-Dockerfile with a proper `git clone` + build block like the other three, and
-delete the vendor directory. Everything else in this image builds from
-scratch.
-
----
-
-## Why protobuf is regenerated in the image
-
-The Dockerfile runs `protoc --cpp_out=src -I src src/message.proto` during the
-build rather than using committed `.pb.h` / `.pb.cc` files, and `.dockerignore`
-excludes them from the build context entirely.
-
-This is deliberate. Generated protobuf code contains a version guard that
-fails the build if the generating `protoc` does not match the linked
-`libprotobuf`:
-
-```
-#error This file was generated by an older version of protoc which is
-#error incompatible with your Protocol Buffer headers.
-```
-
-Regenerating inside the image guarantees both come from the same Ubuntu
-package set. It also means a `protoc` on your `PATH` from conda, homebrew, or
-`/usr/local` cannot poison the build.
-
----
-
-## Building images for distribution
-
-Build once on a capable machine, ship the result. A 512 MB VPS cannot compile
-this — `g++` needs 1–2 GB for the larger translation units — but it runs the
-finished node comfortably.
-
-**Push to a registry:**
-
-```bash
-docker tag tru-node:latest ghcr.io/<user>/tru-node:latest
-docker push ghcr.io/<user>/tru-node:latest
-```
-
-**Or transfer directly over SSH, no registry needed:**
-
-```bash
-docker save tru-node:latest | gzip | \
-    ssh user@remote-host 'gunzip | docker load'
-```
-
-**Multi-architecture** (x86_64 + ARM, for Raspberry Pi and Apple Silicon):
-
-```bash
-docker buildx create --use --name tru-builder
-docker buildx build --platform linux/amd64,linux/arm64 \
-    -t ghcr.io/<user>/tru-node:latest --push .
-```
-
-ARM builds are slow under emulation. A native ARM builder is much faster if
-you have one.
-
----
-
-## Adding a `--daemon` mode
-
-The single change that would most improve this setup. `main.cpp` currently
-branches on `guiMode` and `cliMode`; both expect a human. A third branch that
-starts P2P, RPC, and sync and then blocks would make the container behave
-properly under `docker run -d`, `restart: unless-stopped`, and systemd.
-
-Sketch, alongside the existing `else if (cliMode)` block:
-
-```cpp
-} else if (daemonMode) {
-    std::atomic<bool> syncRunning{true};
-    std::thread syncThread([&chain, &node, &syncRunning]() {
-        try {
-            chain->syncWithPeers(*node, syncRunning, nullptr);
-        } catch (const std::exception& e) {
-            Logger::log("[main] ERROR: Sync failed: " + std::string(e.what()));
-        }
-    });
-
-    Logger::log("[main] Daemon mode: running until signal.");
-    while (g_running) {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
-    }
-
-    // reuse the same shutdown sequence as the GUI/CLI paths
-    syncRunning = false;
-    chain->stop();
-    g_rpcServer.stop();
-    node->stop();
-    if (syncThread.joinable()) syncThread.join();
-    chain->saveChainState();
-    savePeers(node->getKnownPeers(), dbPath + "/peers.dat");
-    Logger::shutdown();
-    return 0;
-}
-```
-
-With a `SIGTERM` handler setting `g_running = false`, `docker stop` would then
-shut the node down cleanly instead of killing it after the 10-second timeout —
-which is also what leaves stale LevelDB locks behind.
-
-Once that exists: change `CMD` to `["--daemon"]`, and drop `stdin_open` and
-`tty` from the compose file.
+**Single seed peer.** New nodes currently bootstrap from one seed. If it is
+unreachable, sync will not start. Additional seeds are planned.
 
 ---
 
 ## Troubleshooting
 
-**`Cannot open config file: tru.conf`**
-`ConfigReader` opens the file by relative path, so the working directory must
-be `/app`. The entrypoint handles this; if you override `--entrypoint`, `cd
-/app` first.
+**`permission denied ... docker.sock`**
+Your user is not in the `docker` group. Run `sudo usermod -aG docker $USER`
+then `newgrp docker`, or log out and back in.
 
 **Container exits immediately**
-Check `docker logs tru-node`. Most often a config parse error or the LevelDB
-lock. If it exits with no output at all, `--cli` was started without a TTY.
+Run without `-d` to see the output. Most often this means `--cli` was started
+without a terminal — make sure you passed `-it`.
+
+**`Unable to open/create database: IO error: lock data/utxo/LOCK`**
+Two containers are sharing one data volume, and the database only permits one
+writer. Check `docker ps` and stop the other one, or give each its own volume.
 
 **No peers connecting**
-Confirm your seeds parsed — the node logs `[P2PNode] Added addnode: ip:port`
-for each one at startup. If those lines are missing, `tru.conf` was not found
-or the format is wrong. If they appear but nothing connects, test reachability
-from the host: `nc -vz <seed-ip> 8333`.
+At startup the node logs a line like `[P2PNode] Added addnode: 1.2.3.4:8333`
+for each configured peer. If those lines are missing, your `tru.conf` was not
+found or the format is wrong. If they appear but nothing connects, check the
+seed is reachable: `nc -vz 137.184.68.43 8333`.
 
-**`ldd` shows missing libraries**
-Should not happen in the container. If you see it, the runtime stage is
-missing a `COPY --from=deps` line for a library added since this image was
-written.
-
-**Build fails on the keccak COPY**
-`docker/vendor/libkeccak.a` is not populated. See "The keccak library".
-
-**Build runs out of memory**
-Use a machine with at least 4 GB, or add swap. `docker build` inherits the
-host's memory; there is no way around the compiler's requirements.
+**Menu appears but nothing syncs**
+Give it a minute — the initial peer handshake and header download take time on
+a fresh node. Check the peer list from the menu to confirm a connection was
+established.
 
 ---
 
-## Image contents
+## What is in the image
 
-Built from `ubuntu:24.04`. Runtime image installs from apt:
-`libprotobuf32t64`, `libleveldb1d`, `libssl3t64`, `libcurl4t64`, `libfmt9`,
-`libjsoncpp25`, `libsodium23`, `libqrencode4`, `libsnappy1v5`.
+Built from `ubuntu:24.04`, roughly 130 MB. Contains the headless node binary
+and its runtime libraries — no compiler, no Qt, no GPU drivers. The node runs
+as an unprivileged user inside the container, not as root.
 
-Built from source in the deps stage: `crc32c` (shared), `ethash` (static),
-`libwally-core` (shared). Vendored: `keccak` (static).
-
-Static archives are linked into the binary and do not appear in the runtime
-image. The node runs as an unprivileged `tru` user, not root.
+Source and build files: [github.com/agreatopportunity/TRU-DOCKER](https://github.com/agreatopportunity/TRU-DOCKER)
