@@ -1,0 +1,174 @@
+# Tru Blockchain Configuration File
+# Default configuration for TRUMain network
+# Lines starting with '#' are comments. Remove '#' to enable an option.
+
+# ===========================================================================
+[network]
+# Address to bind the RPC server (default: all interfaces)
+rpcbind=0.0.0.0
+# RPC port for JSON-RPC server (default: 8332)
+rpcport=8332
+# P2P port for peer-to-peer communication (default: 8333)
+p2pPort=8333
+# Enable listening for incoming connections (default: 1)
+listen=1
+# Maximum number of RPC connections (default: 32)
+rpcMaxConnections=32
+# Enable RPC authentication (default: false)
+#rpcAuthEnabled=false
+# RPC username (required if rpcAuthEnabled=true)
+#rpcUser=truuser
+# RPC password (required if rpcAuthEnabled=true)
+#rpcPassword=trupass
+externalip=192.168.1.50
+addnode=137.184.68.43:8333
+# ===========================================================================
+[AI]
+#oracle.wif=
+#oracle.address=
+#node.ip=127.0.0.1
+#node.port=8001
+
+# ===========================================================================
+[chain]
+# Name of the blockchain (default: TRUMain)
+chainName=TRUMain
+# Network type: mainnet, testnet, regtest (default: mainnet)
+networkType=mainnet
+# Target block time in seconds (default: 60)
+#targetBlockTime=60
+# Difficulty retarget interval in blocks (default: 480)
+#retargetInterval=480
+# Initial difficulty in compact format (default: 0x2400ffff)
+#difficulty=0x2400ffff
+# Block reward in satoshis (default: 50 TRU = 5000000000 satoshis)
+#blockReward=5000000000
+# Halving interval in blocks (default: 210000)
+#halvingInterval=210000
+# Maximum supply in TRU (default: 21 million)
+#maxSupply=21000000
+# Ticker symbol for the chain (default: TRU)
+#ticker=TRU
+# Version of the blockchain protocol (default: 1.0)
+#version=1.0
+# Genesis address for initial coinbase output (default: Satoshi’s address)
+#genesisAddress=1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa
+# Enable zero-knowledge proofs (default: false)
+#isZKProof=false
+
+# ===========================================================================
+[mining]
+# Number of CPU threads for mining (default: 8)
+#mineCPUThreads=8
+# Maximum nonce value for CPU mining (default: 20 million)
+#maxNonce=20000000
+# GPU mining nonce range size per chunk (default: 5 million)
+#gpuRangeSize=5000000
+# Enable GPU mining (default: false)
+#gpuMiningEnabled=false
+# GPU device ID (default: 0, use -1 for auto-select)
+#gpuDeviceID=0
+# Minimum hashes per second to consider a miner active (default: 100 H/s)
+#minMinerHashRate=100
+
+# ===========================================================================
+[mempool]
+# Maximum number of transactions in the mempool (default: 10000)
+#mempoolSizeLimit=10000
+# Minimum relay transaction fee in satoshis (default: 1000)
+#minRelayTxFee=1000
+# Maximum mempool transaction age in seconds (default: 86400 = 1 day)
+#mempoolMaxTxAge=86400
+
+# ===========================================================================
+[explorer]
+# Enable REST API (default: true)
+#restEnabled=true
+# Port for REST API (default: 8080)
+#restPort=8080
+# Enable Web UI (default: false)
+#webUIEnabled=false
+# Port for Web UI / Block Explorer (default: 8001)
+#webUIPort=8001
+# Cache timeout for explorer responses in minutes (default: 5)
+#explorerCacheTTL=5
+
+# ===========================================================================
+[logging]
+# Log level: 0=error, 1=warn, 2=info, 3=debug (default: 2)
+#logLevel=2
+# Enable logging to file (default: true)
+#logToFile=true
+# Log file path (default: tru.log)
+#logFile=tru.log
+# Maximum log file size in MB before rotation (default: 10)
+#logMaxSize=10
+# Number of log files to keep (default: 5)
+#logMaxFiles=5
+
+# ===========================================================================
+[peers]
+# Static peer nodes to connect to (default: none)
+#addnode=192.168.1.10
+#addnode=10.0.0.7
+# Maximum number of peer connections (default: 125)
+#maxPeers=125
+# Minimum number of peers to maintain (default: 8)
+#minPeers=8
+
+# ===========================================================================
+[wallet]
+# Wallet file path (default: tru.dat)
+#walletFile=tru.dat
+# Enable automatic UTXO index rebuilding on startup (default: true)
+#walletRebuildUtxoIndex=true
+# Default derivation path purpose (BIP44=44, default: 44)
+#derivationPurpose=44
+# Default coin type (Bitcoin=0, default: 0)
+#derivationCoinType=0
+# Default account number (default: 0)
+#derivationAccount=0
+# Default change flag (0=external, 1=change, default: 0)
+#derivationChange=0
+
+# ===========================================================================
+[tokens]
+# Enable token support (default: true)
+#tokensEnabled=true
+# Token database path (default: ./blockchain/tokens)
+#tokenDBPath=./blockchain/tokens
+# Maximum metadata size per token in bytes (default: 1024)
+#tokenMaxMetadataSize=1024
+
+# ===========================================================================
+[contracts]
+# Enable smart contract execution (default: true)
+#smartContractsEnabled=true
+# Default gas limit for contract execution (default: 1000000)
+#gasLimit=1000000
+# Gas price per operation in satoshis (default: 10)
+#gasPrice=10
+
+# ===========================================================================
+[database]
+# UTXO database path (default: data/utxo)
+#utxoDBPath=data/utxo
+# Enable database checksums (default: true)
+#dbChecksumEnabled=true
+# Database cache size in MB (default: 128)
+#dbCacheSize=128
+
+# ===========================================================================
+[checkpoints]
+# Blockchain checkpoints for faster sync (format: checkpoint.<height>=<blockhash>)
+#checkpoint.1000=000000abcd...
+#checkpoint.2000=0000001234...
+
+# ===========================================================================
+[experimental]
+# Enable experimental multi-threaded block processing (default: false)
+#multiThreadedBlockProcessing=false
+# Enable contract state caching (default: true)
+#contractCacheEnabled=true
+# Contract cache size in MB (default: 64)
+#contractCacheSize=64

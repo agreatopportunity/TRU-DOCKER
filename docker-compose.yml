@@ -1,0 +1,16 @@
+services:
+  node:
+    image: ghcr.io/agreatopportunity/tru-node:latest
+    container_name: tru-node
+    restart: unless-stopped
+    ports:
+      - "8333:8333"
+    volumes:
+      - tru-data:/app/data
+      - ./tru.conf:/app/tru.conf:ro
+    stdin_open: true
+    tty: true
+    command: ["--cli"]
+
+volumes:
+  tru-data:
