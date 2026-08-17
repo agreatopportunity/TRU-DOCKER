@@ -22,9 +22,10 @@ rpcMaxConnections=32
 #rpcPassword=trupass
 externalip=192.168.1.50
 addnode=137.184.68.43:8333
+
 # ===========================================================================
-[AI]
-#oracle.wif=
+[default]
+#oracle.wif=<ORACLE_ADDRESS_HERE>
 #oracle.address=
 #node.ip=127.0.0.1
 #node.port=8001
