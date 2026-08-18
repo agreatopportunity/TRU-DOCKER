@@ -1,358 +1,1065 @@
-# TRU Blockchain — Node
+# TRU Blockchain — PUBLIC Docker README
 
-Run a node on the Tokenized Real Utility (TRU) blockchain. The published
-Docker images carry everything they need, so there is nothing to compile and
-no dependencies to install beyond Docker itself.
+This guide is for someone who wants to run a TRU node using Docker without building the source code.
 
----
+It is written to be copy/paste friendly.
 
-## Which image do I want?
-
-| Image | Use when |
-|---|---|
-| **`tru-node`** | Default choice. Runs anywhere, no GPU needed. Full menu, CPU mining works. |
-| **`tru-node-gpu`** | You have an **NVIDIA** GPU and want GPU mining. Everything else is identical. |
-
-Both are the same node with the same interactive menu, built from the same
-source. The only difference is that `tru-node-gpu` is compiled with OpenCL, so
-the GPU mining options do something. If you are not going to mine on a GPU,
-take `tru-node` — it has fewer moving parts.
-
-The GPU image is NVIDIA only. AMD and Intel GPUs use a different OpenCL driver
-setup and are not supported by this image.
+> **Important:** This guide runs a normal public peer node. You do **not** need an oracle address or token-evolution setup just to run a node and sync the blockchain.
 
 ---
 
-## Quick start — CPU (`tru-node`)
+# 1. What you need
 
-**1. Install Docker**
+You need:
 
-Ubuntu / Debian:
+- A Linux computer or server
+- Docker installed
+- Internet access
+- About 5–10 minutes for the first setup
+- For the GPU image: an NVIDIA GPU, NVIDIA driver, and NVIDIA Container Toolkit
+
+Check Docker:
 
 ```bash
-sudo apt update && sudo apt install -y docker.io
-sudo usermod -aG docker $USER
-newgrp docker
+docker --version
 ```
 
-macOS or Windows: install [Docker Desktop](https://www.docker.com/products/docker-desktop/).
+If that prints a Docker version, continue.
 
-**2. Run the node**
-
-```bash
-docker run -it -p 8333:8333 -v tru-data:/app/data \
-    ghcr.io/agreatopportunity/tru-node:v1.2.2 --cli
-```
-
-That is the whole thing. The image ships with a working default config, so the
-node will find a seed peer and begin syncing on first launch. You should see
-the menu appear, followed by peer connection and sync activity.
-
----
-
-## Quick start — GPU (`tru-node-gpu`)
-
-Everything above, plus the NVIDIA Container Toolkit on the host. Having the
-NVIDIA driver alone is not enough — the toolkit is what lets Docker pass the
-GPU into a container.
-
-**1. Confirm your driver works**
+For an NVIDIA GPU node, also check:
 
 ```bash
 nvidia-smi
 ```
 
-Your GPUs should be listed. If not, install the NVIDIA driver first.
+---
 
-**2. Install the NVIDIA Container Toolkit**
+# 2. Choose CPU or NVIDIA GPU
 
-```bash
-curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
-  | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+## CPU node
 
-curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
-  | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
-  | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-
-sudo apt update && sudo apt install -y nvidia-container-toolkit
-sudo nvidia-ctk runtime configure --runtime=docker
-sudo systemctl restart docker
-```
-
-Full instructions: [NVIDIA Container Toolkit install guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
-
-**3. Verify Docker can see the GPU**
+Use:
 
 ```bash
-docker run --rm --gpus all ubuntu:24.04 nvidia-smi
+CPU_IMAGE="ghcr.io/agreatopportunity/tru-node:latest"
 ```
 
-Your GPUs should appear again, this time from inside a container. Do not move
-on until this works — if it fails here, the node will start but find no OpenCL
-devices.
+## NVIDIA GPU node
 
-**4. Run the node**
+Use:
 
 ```bash
-docker run -it --gpus all -p 8333:8333 -v tru-data:/app/data \
-    ghcr.io/agreatopportunity/tru-node-gpu:v0.2.2 --cli
+GPU_IMAGE="ghcr.io/agreatopportunity/tru-node-gpu:latest"
 ```
 
-Then pick the GPU mining option from the menu. Watch `nvidia-smi` in another
-terminal to confirm the GPU is actually being used.
+A numbered release can be used instead of `latest` when one is published.
+
+Example format:
+
+```text
+ghcr.io/agreatopportunity/tru-node:vX.Y.Z
+```
+
+Using a numbered version keeps you on that exact release until you choose to upgrade.
 
 ---
 
-## Running both at once
+# 3. Make the TRU folder
 
-You can, but two things will collide:
+Copy/paste:
 
-- **Port 8333.** Only one container can bind it. Give the second a different
-  host port: `-p 8334:8333`.
-- **The data volume.** The database allows a single writer, so each container
-  needs its own: `-v tru-gpu-data:/app/data`.
+```bash
+mkdir -p ~/tru
+cd ~/tru
+```
 
-Most people should just run one.
+Everything in this guide assumes this folder is:
+
+```text
+~/tru
+```
 
 ---
 
-## Using the menu
+# 4. Create `tru.conf`
 
-`--cli` opens an interactive menu covering wallet creation, sending funds,
-mining, tokens, TRU scripts, smart contracts, and peer management. Navigate by
-entering the number or letter shown.
-
-To leave the container running while you do something else, press
-`Ctrl-P` then `Ctrl-Q`. Come back with:
+Copy/paste this entire block:
 
 ```bash
-docker attach tru-node
-```
-
-To stop the node, choose the Exit option from the menu. That lets it save
-chain state and wallet files cleanly, which `docker stop` currently does not.
-
----
-
-## Keeping your data
-
-Everything the node writes — chain data, UTXO set, wallet files, peer list —
-lives in a Docker volume called `tru-data`. It survives container restarts,
-removals, and image updates.
-
-```bash
-docker volume inspect tru-data       # see where it lives on disk
-```
-
-Back it up before doing anything risky:
-
-```bash
-docker run --rm -v tru-data:/data -v "$(pwd)":/backup ubuntu \
-    tar czf /backup/tru-backup.tar.gz /data
-```
-
-> **Your wallet lives in this volume.** `docker volume rm tru-data` and
-> `docker compose down -v` both delete it permanently. If you have funds on
-> this node, back up first.
-
----
-
-## Custom configuration
-
-The defaults work for syncing. Mount your own `tru.conf` if you want to change
-ports, add peers, or advertise a public address.
-
-```bash
-git clone https://github.com/agreatopportunity/TRU-DOCKER.git
-cd TRU-DOCKER
-cp tru.conf.example tru.conf
-# edit tru.conf
-```
-
-Then mount it:
-
-```bash
-docker run -it -p 8333:8333 \
-    -v tru-data:/app/data \
-    -v "$(pwd)/tru.conf:/app/tru.conf:ro" \
-    ghcr.io/agreatopportunity/tru-node:latest --cli
-```
-
-On Windows PowerShell, use `${PWD}` instead of `$(pwd)`.
-
-Or use Compose, which handles the mounts for you:
-
-```bash
-docker compose up -d node
-docker compose logs -f node
-docker compose down          # stop, keep data
-```
-
-### Config format
-
-```ini
+cat > ~/tru/tru.conf << 'EOF'
 [network]
-rpcbind=127.0.0.1
+rpcbind=0.0.0.0
 rpcport=8332
 p2pPort=8333
 listen=1
 rpcMaxConnections=32
+addnode=137.184.68.43:8333
 
-# Your public IP, if other peers should be able to reach you.
-# Leave commented out if you are behind a home router or CGNAT.
-#externalip=203.0.113.10
+[default]
+node.ip=127.0.0.1
+node.port=8332
 
-# Peers to connect to on startup. Comma-separated ip:port.
+[chain]
+chainName=TRUMain
+networkType=mainnet
+EOF
+```
+
+Check it:
+
+```bash
+cat ~/tru/tru.conf
+```
+
+### What these important settings mean
+
+```ini
+rpcbind=0.0.0.0
+```
+
+Allows RPC to listen inside the Docker container.
+
+```ini
+rpcport=8332
+```
+
+TRU RPC port.
+
+```ini
+p2pPort=8333
+```
+
+TRU peer-to-peer port.
+
+```ini
+listen=1
+```
+
+Allows the TRU node to listen for peers.
+
+```ini
 addnode=137.184.68.43:8333
 ```
 
-Three parser rules that will silently break things:
+Tells your node which public TRU peer/seed to contact when it starts.
 
-- **No spaces after commas** in `addnode`. Write `1.2.3.4:8333,5.6.7.8:8333`,
-  not `1.2.3.4:8333, 5.6.7.8:8333`.
-- **No inline comments.** `p2pPort=8333 # main` is read as the literal value
-  `8333 # main`. Put comments on their own line.
-- **IP addresses only**, not hostnames. The peer layer does not resolve DNS.
-
-`seeds=` behaves identically to `addnode=`; both add to the same peer list.
+You normally do **not** need to set `externalip` on a home computer.
 
 ---
 
-## Ports
+# 5. Download the Docker image
 
-| Port | Purpose | Expose to the internet? |
-|---|---|---|
-| 8333 | Peer-to-peer sync | Yes — this is how other nodes reach you |
-| 8332 | JSON-RPC | **No** |
+## CPU
 
-> **The RPC interface has no authentication.** Any method — including wallet
-> and mining operations — can be called by anyone who can reach port 8332. Do
-> not publish it, do not put it behind a public hostname, and do not tunnel it
-> without an authenticating proxy in front. Port 8333 is safe and meant to be
-> public.
+```bash
+docker pull ghcr.io/agreatopportunity/tru-node:latest
+```
 
-If you want inbound peers, open 8333 on your firewall:
+## NVIDIA GPU
+
+```bash
+docker pull ghcr.io/agreatopportunity/tru-node-gpu:latest
+```
+
+You only need the image you plan to run.
+
+---
+
+# 6. First start — CPU node
+
+Copy/paste:
+
+```bash
+docker run -it \
+  --name tru \
+  -w /app \
+  -p 8333:8333 \
+  -p 127.0.0.1:8332:8332 \
+  -e TRU_ALLOW_NEW_SEED=1 \
+  -e TRU_WALLET_SEED_PATH=/app/data/seed.dat \
+  -v tru-data:/app/data \
+  --mount "type=bind,src=$HOME/tru/tru.conf,dst=/app/tru.conf,readonly" \
+  ghcr.io/agreatopportunity/tru-node:latest \
+  --conf /app/tru.conf \
+  --datadir /app/data/utxo \
+  --cli
+```
+
+---
+
+# 7. First start — NVIDIA GPU node
+
+Copy/paste:
+
+```bash
+docker run -it \
+  --gpus all \
+  --name tru \
+  -w /app \
+  -p 8333:8333 \
+  -p 127.0.0.1:8332:8332 \
+  -e TRU_ALLOW_NEW_SEED=1 \
+  -e TRU_WALLET_SEED_PATH=/app/data/seed.dat \
+  -v tru-data:/app/data \
+  --mount "type=bind,src=$HOME/tru/tru.conf,dst=/app/tru.conf,readonly" \
+  ghcr.io/agreatopportunity/tru-node-gpu:latest \
+  --conf /app/tru.conf \
+  --datadir /app/data/utxo \
+  --cli
+```
+
+If Docker says it cannot use `--gpus all`, your NVIDIA Container Toolkit is not installed/configured correctly.
+
+---
+
+# 8. VERY IMPORTANT — how to leave the window without stopping TRU
+
+When you are attached to the TRU Docker console:
+
+**Do not press `Ctrl+C` just because you want to close the terminal.**
+
+To disconnect from the Docker console while leaving TRU running:
+
+1. Press:
+
+```text
+Ctrl+P
+```
+
+2. Then press:
+
+```text
+Ctrl+Q
+```
+
+You should return to your normal Linux prompt.
+
+Now you can close SSH or close the terminal window.
+
+TRU keeps running.
+
+---
+
+# 9. Attach to TRU again
+
+To go back into the running TRU console:
+
+```bash
+docker attach tru
+```
+
+To leave it again without stopping TRU:
+
+```text
+Ctrl+P
+Ctrl+Q
+```
+
+---
+
+# 10. Check whether TRU is running
+
+```bash
+docker ps
+```
+
+You should see:
+
+```text
+tru
+```
+
+To also show stopped containers:
+
+```bash
+docker ps -a
+```
+
+---
+
+# 11. View logs without attaching
+
+Last 100 log lines:
+
+```bash
+docker logs --tail 100 tru
+```
+
+Follow the log live:
+
+```bash
+docker logs -f tru
+```
+
+Press:
+
+```text
+Ctrl+C
+```
+
+to stop following the **log**.
+
+That does **not** stop the TRU container when you are using `docker logs -f`.
+
+Useful network/sync messages:
+
+```bash
+docker logs tru 2>&1 | \
+grep -Ei 'peer|connected|sync|height|listening|accepted|block' | tail -100
+```
+
+---
+
+# 12. Start a stopped TRU container
+
+Start it in the background:
+
+```bash
+docker start tru
+```
+
+Then attach:
+
+```bash
+docker attach tru
+```
+
+Or start it and attach immediately:
+
+```bash
+docker start -ai tru
+```
+
+---
+
+# 13. Stop TRU safely
+
+The preferred method is:
+
+1. Attach:
+
+```bash
+docker attach tru
+```
+
+2. Use TRU's normal **Exit** option in the CLI/menu.
+
+This gives TRU time to save its wallet, peers, blockchain state, and close the database cleanly.
+
+If you cannot use the menu, try:
+
+```bash
+docker stop -t 30 tru
+```
+
+Use this only as a last resort:
+
+```bash
+docker kill tru
+```
+
+`docker kill` immediately kills the process and does not allow a clean shutdown.
+
+---
+
+# 14. Restart TRU
+
+Normal restart:
+
+```bash
+docker stop -t 30 tru
+docker start tru
+```
+
+Then:
+
+```bash
+docker attach tru
+```
+
+If TRU has a normal Exit menu available, using that before restarting is preferred.
+
+---
+
+# 15. Check whether port 8333 is listening
+
+On the host:
+
+```bash
+sudo ss -ltnp | grep 8333
+```
+
+Check the public seed:
+
+```bash
+nc -vz 137.184.68.43 8333
+```
+
+If you see:
+
+```text
+succeeded
+```
+
+the seed is reachable.
+
+If you see:
+
+```text
+Connection refused
+```
+
+the remote node is not currently accepting connections on that port.
+
+---
+
+# 16. Home router / firewall information
+
+TRU can make **outbound** connections without port forwarding.
+
+So a normal home user can usually sync without changing the router.
+
+For inbound peers, TCP port:
+
+```text
+8333
+```
+
+must be reachable.
+
+If Ubuntu UFW is enabled:
 
 ```bash
 sudo ufw allow 8333/tcp
 ```
 
----
+Check UFW:
 
-## Accepting inbound peers
+```bash
+sudo ufw status
+```
 
-Your node syncs fine without this — outbound connections always work. Accepting
-inbound peers is optional and helps the network.
+You do **not** need to expose RPC port `8332` to the Internet.
 
-To be reachable you need three things: port 8333 published (`-p 8333:8333`),
-your firewall allowing it, and a route from the internet to your machine. That
-last one is where it usually breaks:
+The Docker command in this guide deliberately publishes RPC only on:
 
-**Home router.** Forward external TCP 8333 to your machine's LAN address, then
-set `externalip` to your public IP (find it with `curl -4 ifconfig.me`).
+```text
+127.0.0.1:8332
+```
 
-**CGNAT.** Common on Starlink, cellular, and some cable providers — your public
-IP is shared at the carrier level and port forwarding cannot work. Check your
-router's WAN address; anything starting `100.64.` through `100.127.` is CGNAT.
-There is no workaround at home. Your node still syncs normally; it just cannot
-accept incoming connections.
+That means RPC can be used by software on the same machine, but is not directly exposed to the public Internet.
 
 ---
 
-## Updating
+# 17. Important wallet information
+
+TRU's main wallet file is:
+
+```text
+/app/tru.dat
+```
+
+inside the container.
+
+The blockchain data volume is:
+
+```text
+tru-data
+```
+
+mounted at:
+
+```text
+/app/data
+```
+
+These are **not the same thing**.
+
+## Important rule
+
+Stopping and starting the same container keeps `tru.dat`.
+
+Removing the container can delete the wallet that exists in the container filesystem.
+
+Therefore:
+
+> **BACK UP THE WALLET BEFORE RUNNING `docker rm`.**
+
+---
+
+# 18. Back up the wallet
+
+Create a backup folder:
+
+```bash
+mkdir -p ~/tru/backups
+```
+
+Back up the main wallet:
+
+```bash
+STAMP=$(date +%F-%H%M%S)
+mkdir -p "$HOME/tru/backups/$STAMP"
+
+docker cp \
+  tru:/app/tru.dat \
+  "$HOME/tru/backups/$STAMP/tru.dat"
+```
+
+TRU may also have additional wallet/seed state. Back up these if they exist:
+
+```bash
+docker cp tru:/app/wallet_seed.dat \
+  "$HOME/tru/backups/$STAMP/wallet_seed.dat" 2>/dev/null || true
+
+docker cp tru:/app/wallet_index.dat \
+  "$HOME/tru/backups/$STAMP/wallet_index.dat" 2>/dev/null || true
+
+docker cp tru:/app/data/seed.dat \
+  "$HOME/tru/backups/$STAMP/seed.dat" 2>/dev/null || true
+```
+
+Also save the config:
+
+```bash
+cp ~/tru/tru.conf \
+  "$HOME/tru/backups/$STAMP/tru.conf"
+```
+
+List the backup:
+
+```bash
+ls -lah "$HOME/tru/backups/$STAMP"
+```
+
+Keep wallet backups private.
+
+**Never upload wallet files, seed files, private keys, or `.env` files to GitHub or another public location.**
+
+---
+
+# 19. Removing the container
+
+First make a wallet backup.
+
+Then:
+
+```bash
+docker stop -t 30 tru 2>/dev/null || true
+docker rm tru
+```
+
+This removes the container.
+
+It does **not** remove the named blockchain volume:
+
+```text
+tru-data
+```
+
+---
+
+# 20. DO NOT casually delete the blockchain volume
+
+Show TRU volumes:
+
+```bash
+docker volume ls | grep tru
+```
+
+The public node volume is:
+
+```text
+tru-data
+```
+
+Deleting it deletes the Docker blockchain database:
+
+```bash
+docker volume rm tru-data
+```
+
+Do **not** run that command unless you intentionally want a completely fresh chain database.
+
+Deleting a container and deleting a volume are two different things.
+
+---
+
+# 21. Re-create the container while keeping the blockchain
+
+If the container was removed but the volume still exists, use the same run command again.
+
+CPU example:
+
+```bash
+docker run -it \
+  --name tru \
+  -w /app \
+  -p 8333:8333 \
+  -p 127.0.0.1:8332:8332 \
+  -v tru-data:/app/data \
+  --mount type=bind,src="$HOME/tru/tru.conf",dst=/app/tru.conf,readonly \
+  ghcr.io/agreatopportunity/tru-node:latest \
+  --conf /app/tru.conf \
+  --datadir /app/data/utxo \
+  --cli
+```
+
+**Important:** a newly created container may create a new wallet. Restore your backed-up wallet/seed state before using that replacement container for funds.
+
+For a careful wallet restore, stop the new container first:
+
+```bash
+docker stop -t 30 tru
+```
+
+Then copy your backed-up files into it:
+
+```bash
+docker cp ~/tru/backups/YOUR_BACKUP_FOLDER/tru.dat \
+  tru:/app/tru.dat
+```
+
+If your backup contains these files, restore them too:
+
+```bash
+docker cp ~/tru/backups/YOUR_BACKUP_FOLDER/wallet_seed.dat \
+  tru:/app/wallet_seed.dat
+```
+
+```bash
+docker cp ~/tru/backups/YOUR_BACKUP_FOLDER/wallet_index.dat \
+  tru:/app/wallet_index.dat
+```
+
+```bash
+docker cp ~/tru/backups/YOUR_BACKUP_FOLDER/seed.dat \
+  tru:/app/data/seed.dat
+```
+
+Then:
+
+```bash
+docker start -ai tru
+```
+
+---
+
+# 22. Update to a newer TRU Docker image
+
+First back up the wallet as shown above.
+
+Then pull the new image.
+
+CPU:
 
 ```bash
 docker pull ghcr.io/agreatopportunity/tru-node:latest
-docker rm -f tru-node
-docker run -it -p 8333:8333 -v tru-data:/app/data \
-    ghcr.io/agreatopportunity/tru-node:latest --cli
 ```
 
-Same for the GPU image, substituting `tru-node-gpu` and adding `--gpus all`.
-
-Your data volume is untouched by this — the new container picks up right where
-the old one left off.
-
-Version tags are published alongside `latest` if you prefer to pin:
+GPU:
 
 ```bash
-docker pull ghcr.io/agreatopportunity/tru-node:v0.1.1
+docker pull ghcr.io/agreatopportunity/tru-node-gpu:latest
 ```
 
----
-
-## Known limitations
-
-**No background mode yet.** The node currently has no daemon mode, so it needs
-a terminal attached. `docker run -d` will not work correctly, and `docker stop`
-kills the process rather than shutting it down cleanly — which can leave a
-stale database lock. Use the menu's Exit option to stop the node, and detach
-with `Ctrl-P` `Ctrl-Q` rather than stopping the container. A `--daemon` mode is
-planned.
-
-**No GUI wallet in either image.** Containers have no display, so the Qt wallet
-is not included. It is available as a native build from the source repository.
-
-**GPU image is NVIDIA only.** AMD and Intel GPUs need a different OpenCL ICD
-setup. `tru-node-gpu` will start on those systems but find no OpenCL devices.
-
-**Single seed peer.** New nodes currently bootstrap from one seed. If it is
-unreachable, sync will not start. Additional seeds are planned.
-
----
-
-## Troubleshooting
-
-**`permission denied ... docker.sock`**
-Your user is not in the `docker` group. Run `sudo usermod -aG docker $USER`
-then `newgrp docker`, or log out and back in.
-
-**`failed to discover GPU vendor from CDI: no known GPU vendor found`**
-The NVIDIA Container Toolkit is not installed, or Docker was not restarted after
-configuring it. See the GPU quick start above. Having `nvidia-smi` work on the
-host is not sufficient on its own.
-
-**GPU mining finds no devices**
-Check the toolkit is passing the driver through:
+See which image your current container uses:
 
 ```bash
-docker run --rm --gpus all ghcr.io/agreatopportunity/tru-node-gpu:latest \
-    bash -c "ls /usr/lib/x86_64-linux-gnu/ | grep nvidia-opencl"
+docker inspect tru \
+  --format='{{.Config.Image}}'
 ```
 
-`libnvidia-opencl.so.1` should be listed. If it is missing, the container is
-not receiving the driver — confirm you passed `--gpus all`.
-
-**Container exits immediately**
-Run without `-d` to see the output. Most often this means `--cli` was started
-without a terminal — make sure you passed `-it`.
-
-**`Unable to open/create database: IO error: lock data/utxo/LOCK`**
-Two containers are sharing one data volume, and the database only permits one
-writer. Check `docker ps` and stop the other one, or give each its own volume.
-
-**No peers connecting**
-At startup the node logs a line like `[P2PNode] Added addnode: 1.2.3.4:8333`
-for each configured peer. If those lines are missing, your `tru.conf` was not
-found or the format is wrong. If they appear but nothing connects, check the
-seed is reachable: `nc -vz 137.184.68.43 8333`.
-
-**Menu appears but nothing syncs**
-Give it a minute — the initial peer handshake and header download take time on
-a fresh node. Check the peer list from the menu to confirm a connection was
-established.
+Because changing the image requires creating a new container, always back up the wallet/seed files before upgrading.
 
 ---
 
-## What is in the images
+# 23. Check chain information
 
-Both are built from `ubuntu:24.04` and are roughly 130 MB. They contain the
-node binary and its runtime libraries — no compiler, no Qt, no bundled GPU
-drivers. The node runs as an unprivileged user inside the container, not as
-root.
+Attach:
 
-`tru-node-gpu` additionally carries the OpenCL ICD loader. The NVIDIA OpenCL
-driver itself is injected from your host at run time by the container toolkit,
-which is why the image stays small and does not pin a CUDA version.
+```bash
+docker attach tru
+```
 
-Source and build files: [github.com/agreatopportunity/TRU-DOCKER](https://github.com/agreatopportunity/TRU-DOCKER)
+Use the TRU CLI/menu option for chain information.
+
+Useful items to check:
+
+- Current block height
+- Best block hash
+- Connected peers
+- Sync status
+
+When comparing two TRU nodes, the best block hash at the same height should match.
+
+Detach afterward:
+
+```text
+Ctrl+P
+Ctrl+Q
+```
+
+---
+
+# 24. Check peers
+
+You can use the TRU CLI/menu peer list.
+
+Or check logs:
+
+```bash
+docker logs tru 2>&1 | \
+grep -Ei 'peer|connected|handshake|addnode' | tail -100
+```
+
+---
+
+# 25. CPU mining from the same host
+
+If you also downloaded the standalone TRU CPU miner, it connects to the local node using:
+
+```text
+127.0.0.1:8332
+```
+
+Example:
+
+```bash
+./tru_miner_cpu \
+  --node-ip 127.0.0.1 \
+  --node-port 8332 \
+  --mineraddr YOUR_TRU_ADDRESS \
+  --threads 4
+```
+
+Replace:
+
+```text
+YOUR_TRU_ADDRESS
+```
+
+with your own TRU address.
+
+---
+
+# 26. GPU mining from the same host
+
+Standalone GPU miner example:
+
+```bash
+./tru_miner \
+  --node-ip 127.0.0.1 \
+  --node-port 8332 \
+  --mineraddr YOUR_TRU_ADDRESS
+```
+
+The standalone GPU miner does not require the CPU miner's `--threads` option.
+
+---
+
+# 27. Quick command cheat sheet
+
+## Is TRU running?
+
+```bash
+docker ps
+```
+
+## Show stopped containers too
+
+```bash
+docker ps -a
+```
+
+## Attach
+
+```bash
+docker attach tru
+```
+
+## Detach without stopping
+
+```text
+Ctrl+P
+Ctrl+Q
+```
+
+## Start
+
+```bash
+docker start tru
+```
+
+## Start and attach
+
+```bash
+docker start -ai tru
+```
+
+## Stop
+
+```bash
+docker stop -t 30 tru
+```
+
+## Last 100 logs
+
+```bash
+docker logs --tail 100 tru
+```
+
+## Follow logs
+
+```bash
+docker logs -f tru
+```
+
+## Inspect image version
+
+```bash
+docker inspect tru --format='{{.Config.Image}}'
+```
+
+## Show TRU Docker volume
+
+```bash
+docker volume ls | grep tru
+```
+
+## Check local P2P port
+
+```bash
+sudo ss -ltnp | grep 8333
+```
+
+## Test seed
+
+```bash
+nc -vz 137.184.68.43 8333
+```
+
+---
+
+# 28. Common problems
+
+## `Conflict. The container name "/tru" is already in use`
+
+The container already exists.
+
+Check:
+
+```bash
+docker ps -a | grep tru
+```
+
+Start it:
+
+```bash
+docker start -ai tru
+```
+
+Do **not** remove it unless you have backed up the wallet.
+
+---
+
+## `port is already allocated` or `Address already in use`
+
+Something else is already using port 8333 or 8332.
+
+Check:
+
+```bash
+sudo ss -ltnp | grep -E '8332|8333'
+```
+
+Also check Docker:
+
+```bash
+docker ps
+```
+
+---
+
+## `Connection refused` to `137.184.68.43:8333`
+
+The seed is not accepting a connection at that moment.
+
+Your node may retry automatically.
+
+Check again:
+
+```bash
+nc -vz 137.184.68.43 8333
+```
+
+---
+
+## GPU error about `--gpus all`
+
+Check:
+
+```bash
+nvidia-smi
+```
+
+If NVIDIA works on the host but Docker cannot use the GPU, install/configure the NVIDIA Container Toolkit.
+
+---
+
+## Node stops when I close my terminal
+
+When attached to Docker, detach properly first:
+
+```text
+Ctrl+P
+Ctrl+Q
+```
+
+Then close the terminal.
+
+---
+
+# 29. Security rules
+
+1. Never expose RPC port `8332` directly to the public Internet.
+2. Never upload `tru.dat` publicly.
+3. Never upload wallet seed files publicly.
+4. Never upload private keys.
+5. Never upload `.env` files containing API keys.
+6. Back up the wallet before removing or replacing a container.
+7. Do not delete `tru-data` unless you intentionally want to erase the Docker blockchain database.
+
+---
+
+# 30. Clean uninstall
+
+If you want to remove the container but keep blockchain data:
+
+```bash
+docker stop -t 30 tru 2>/dev/null || true
+docker rm tru
+```
+
+The named volume remains.
+
+To also remove the downloaded CPU image:
+
+```bash
+docker image rm ghcr.io/agreatopportunity/tru-node:latest
+```
+
+GPU:
+
+```bash
+docker image rm ghcr.io/agreatopportunity/tru-node-gpu:latest
+```
+
+### Permanent chain-data deletion
+
+Only if you truly want to erase the Docker blockchain database:
+
+```bash
+docker volume rm tru-data
+```
+
+This does **not** magically back up your wallet. Back up wallet/seed files first.
+
+---
+
+# 31. The three things to remember
+
+If you remember nothing else, remember these:
+
+### 1. Leave the console without stopping TRU
+
+```text
+Ctrl+P
+Ctrl+Q
+```
+
+### 2. Back up your wallet before removing a container
+
+```text
+/app/tru.dat
+```
+
+### 3. Never expose RPC 8332 publicly
+
+The Docker commands in this guide expose RPC only to:
+
+```text
+127.0.0.1:8332
+```
+
+P2P uses:
+
+```text
+8333
+```
+
+---
+
+# TRU PUBLIC Docker Quick Start
+
+For an experienced Docker user, the short version is:
+
+```bash
+mkdir -p ~/tru
+
+cat > ~/tru/tru.conf << 'EOF'
+[network]
+rpcbind=0.0.0.0
+rpcport=8332
+p2pPort=8333
+listen=1
+rpcMaxConnections=32
+addnode=137.184.68.43:8333
+
+[default]
+node.ip=127.0.0.1
+node.port=8332
+
+[chain]
+chainName=TRUMain
+networkType=mainnet
+EOF
+
+docker pull ghcr.io/agreatopportunity/tru-node-gpu:latest
+
+docker run -it \
+  --gpus all \
+  --name tru \
+  -w /app \
+  -p 8333:8333 \
+  -p 127.0.0.1:8332:8332 \
+  -v tru-data:/app/data \
+  --mount type=bind,src="$HOME/tru/tru.conf",dst=/app/tru.conf,readonly \
+  ghcr.io/agreatopportunity/tru-node-gpu:latest \
+  --conf /app/tru.conf \
+  --datadir /app/data/utxo \
+  --cli
+```
+
+Detach without stopping:
+
+```text
+Ctrl+P
+Ctrl+Q
+```
+
+Reattach:
+
+```bash
+docker attach tru
+```
+
+Check logs:
+
+```bash
+docker logs --tail 100 tru
+```
+
+---
+
+**TRU Blockchain — PUBLIC Docker README**
