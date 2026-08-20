@@ -1,726 +1,757 @@
-# TRU — TrueChain
+# TRU — Tokenized Real Utility
 
-**TRU (TrueChain)** is a from-scratch, UTXO-based Proof-of-Work blockchain written in C++17. It pairs a Bitcoin-style transaction model with an extended script interpreter, a four-type token system, on-chain AI oracle responses, and a full node/wallet/explorer/miner stack — all built and maintained by a single developer.
+> **A UTXO-based Proof-of-Work Layer 1 combining Bitcoin-style ownership, stateful smart contracts, native tokenization, AI-oracle anchoring, Living Tokens, CPU/GPU mining, and a complete node / wallet / CLI / explorer stack.**
 
-This document describes the system as it actually behaves in the code, including which features are fully implemented and which remain placeholders.
+TRU is an independent Layer-1 blockchain written in C++17. The chain is internally known as **TrueChain**, its native asset is **TRU**, and the project is focused on **Tokenized Real Utility**: bringing ownership, programmable assets, verifiable state, real-world data workflows, and AI-assisted applications together on one UTXO-based network.
+
+TRU is not an ERC-20 token, sidechain, or cosmetic Bitcoin fork. It implements its own blockchain node, Proof-of-Work validation, UTXO ledger, mempool, P2P networking, mining, wallet, script interpreter, token layer, AI-oracle subsystem, JSON-RPC API, command-line tools, and block explorer.
+
+---
+
+## Highlights
+
+- **UTXO-based Layer 1** with Bitcoin-style inputs, outputs, P2PKH/P2SH, transaction IDs, Merkle roots, and cumulative-work fork choice.
+- **Nakamoto Proof-of-Work** using TRU's `SHA256d + 21E8` puzzle.
+- **60-second target block time** with deterministic difficulty calculation derived from the parent chain.
+- **CPU and OpenCL GPU mining** using the same consensus puzzle as the node validator.
+- **Large-block architecture** with size-aware block assembly, P2P headroom, and a reusable block-size configurator.
+- **Stateful UTXO smart contracts** with persistent contract storage and gas metering.
+- **Real ECDSA single-signature and multisignature verification** over secp256k1.
+- **Four native token classes**: FT, NFT, SFT, and NCFT.
+- **TRUSCRIPT inscriptions** for on-chain text/data ownership.
+- **Living Token Evolution** with cryptographically linked AI-generated metadata epochs.
+- **Provider-agnostic AI oracle** supporting local, private, cloud, and custom AI backends.
+- **AI responses and evolution proofs anchored on-chain** without making nondeterministic AI execution part of consensus.
+- **Interactive terminal UI** with responsive full/compact menus and live mining information.
+- **Standalone `tru-cli`** with Bitcoin-style commands plus raw access to the full JSON-RPC API.
+- **HD/BIP32 wallet core**, terminal wallet functionality, and Qt desktop GUI support.
+- **HTTP block explorer** and a broad JSON-RPC interface.
+- **Docker deployment** for nodes and miners.
 
 ---
 
 ## Table of Contents
 
-1. [What TRU Is](#what-tru-is)
-2. [Chain Parameters](#chain-parameters)
-3. [Architecture](#architecture)
-4. [Consensus](#consensus)
-5. [Transactions & Scripting](#transactions--scripting)
-6. [Tokens](#tokens)
-7. [Smart Contracts & Opcodes](#smart-contracts--opcodes)
-8. [AI Oracle](#ai-oracle)
-9. [Networking (P2P)](#networking-p2p)
-10. [Storage](#storage)
-11. [Wallets](#wallets)
-12. [Mining](#mining)
-13. [RPC API](#rpc-api)
-14. [Block Explorer](#block-explorer)
-15. [Building & Running](#building--running)
-16. [Implementation Status](#implementation-status)
-17. [Security Notes](#security-notes)
+1. [Chain Parameters](#chain-parameters)
+2. [Architecture](#architecture)
+3. [Consensus and Proof-of-Work](#consensus-and-proof-of-work)
+4. [Large-Block Architecture](#large-block-architecture)
+5. [Transactions and UTXOs](#transactions-and-utxos)
+6. [Smart Contracts and Opcodes](#smart-contracts-and-opcodes)
+7. [Native Token System](#native-token-system)
+8. [TRUSCRIPT Inscriptions](#truscript-inscriptions)
+9. [AI Oracle](#ai-oracle)
+10. [Living Token Evolution](#living-token-evolution)
+11. [Interactive Node CLI](#interactive-node-cli)
+12. [`tru-cli`](#tru-cli)
+13. [Wallets](#wallets)
+14. [Mining](#mining)
+15. [P2P Networking](#p2p-networking)
+16. [Storage](#storage)
+17. [JSON-RPC API](#json-rpc-api)
+18. [Block Explorer](#block-explorer)
+19. [Building and Running](#building-and-running)
+20. [Docker](#docker)
+21. [Configuration](#configuration)
+22. [Implementation Status](#implementation-status)
+23. [Security Notes](#security-notes)
+24. [Scaling Direction](#scaling-direction)
+25. [Additional Documentation](#additional-documentation)
 
 ---
 
-## What TRU Is
+# Chain Parameters
 
-TRU is a complete Layer-1 blockchain, not a library or a cosmetic fork. It implements the full stack from the wire protocol up:
-
-- A **UTXO ledger** persisted in LevelDB with per-value integrity checksums.
-- **Proof-of-Work** using a custom `SHA256d + 21E8` puzzle, mineable on CPU (multithreaded) or GPU (OpenCL).
-- A **script interpreter** extending Bitcoin's opcode set with real single- and multi-signature verification, stateful contract opcodes, gas metering, modern hashing, deterministic chain-state reads, and cross-chain bridge primitives.
-- A **token layer** supporting four token classes plus on-chain text inscriptions (TRUSCRIPT).
-- An **AI oracle** that writes language-model responses onto the chain via `OP_RETURN`.
-- A **peer-to-peer network** using length-prefixed, checksummed Protobuf messages.
-- **Wallets** (HD/BIP32) exposed through a CLI and a Qt desktop GUI.
-- A **JSON-RPC API** (~65 methods) and an **HTTP block explorer**.
-
-The chain is named *TrueChain*; its native asset ticker is **TRU**.
-
----
-
-## Chain Parameters
-
-| Parameter | Value |
+| Parameter | Current design |
 |---|---|
-| Chain name | TrueChain |
-| Ticker | TRU |
-| Consensus | Proof-of-Work (SHA256d + 21E8 injection) |
+| Chain | TrueChain |
+| Native asset | TRU |
+| Model | UTXO |
+| Consensus | Nakamoto Proof-of-Work |
+| PoW | `SHA256d + 21E8` |
 | Base unit | 1 TRU = 100,000,000 satoshis |
-| Block subsidy | 50 TRU initial |
+| Initial block subsidy | 50 TRU |
 | Halving interval | 210,000 blocks |
 | Target block time | 60 seconds |
-| Difficulty retarget | Every 480 blocks (~8 hours) |
+| Difficulty retarget interval | 60 blocks |
+| Retarget adjustment clamp | 0.5× to 2× target movement per interval |
 | Coinbase maturity | 100 blocks |
-| Max block size | 10 MiB |
-| Max money | 21,000,000 TRU |
-| Address format | Base58Check P2PKH, version byte `0x00` |
+| Maximum supply | 21,000,000 TRU |
+| Address format | Base58Check P2PKH |
 | Default RPC port | 8332 |
 | Default P2P port | 8333 |
 | Default explorer port | 8001 |
 
+### Current staged large-block profile
+
+The large-block infrastructure centralizes block and network sizing so miners, validation, templates, and P2P transport stay aligned.
+
+| Limit | Staged value |
+|---|---:|
+| Hard consensus block cap | **64 MiB** |
+| Miner/template assembly budget | **56 MiB** |
+| P2P framed payload cap | **80 MiB** |
+
+The assembly budget intentionally sits below the consensus cap so the block builder has room for block-level metadata and serialization overhead.
+
+TRU also includes a reusable `Block_Size_Increaser_or_Decreaser_Patch.py` utility for future controlled size changes. Under the current 32-bit P2P Frame V1 design, the utility supports configurations up to **3 GiB** while preserving transport headroom.
+
+> **Consensus note:** the maximum accepted block size is a consensus rule. All participating nodes should be upgraded before miners begin producing blocks larger than the previous limit. Lowering the limit also requires care if historical blocks already exceed the proposed new cap.
+
+A future P2P Frame V2 / streamed-block architecture is required before safely moving to true 4 GiB+ or effectively unbounded blocks.
+
 ---
 
-## Architecture
+# Architecture
 
-TRU runs as one cooperating node process, plus standalone miner binaries and an optional explorer binary.
+TRU runs as a complete blockchain stack rather than depending on another chain for settlement.
 
-```
-                      +-------------------+
-                      |   CLI / Qt GUI    |
-                      +---------+---------+
-                                |
-  +-----------+   +-------------v-------------+   +----------------+
-  |  Miners   |-->|          Node             |<--|   RPC clients  |
-  | CPU / GPU |   |                           |   +----------------+
-  +-----------+   |  Blockchain  <-> Mempool  |
-                  |      |            |        |   +----------------+
-                  |   UTXO Set     Script VM  |<--|  Block Explorer |
-                  |      |            |        |   +----------------+
-                  |  LevelDB      AI Oracle   |
-                  +------------+--------------+
+```text
+                         +----------------------+
+                         |  Interactive CLI     |
+                         |  Qt GUI / tru-cli    |
+                         +----------+-----------+
+                                    |
+          +-------------------------+-------------------------+
+          |                                                   |
++---------v---------+                              +----------v---------+
+| CPU / GPU Miners |                              | JSON-RPC Clients   |
++---------+---------+                              +----------+---------+
+          |                                                   |
+          +--------------------+------------------------------+
                                |
-                          +----v----+
-                          |  P2P    |  <-- Protobuf over TCP
-                          +---------+
+                     +---------v----------+
+                     |      TRU NODE      |
+                     |    tru_advanced    |
+                     +---------+----------+
+                               |
+        +----------------------+----------------------+
+        |                      |                      |
++-------v-------+      +-------v-------+      +-------v-------+
+| Blockchain / |      |    Mempool    |      |  Script VM /  |
+| Fork Choice  |      | TX Admission  |      | Smart Contract|
++-------+-------+      +-------+-------+      +-------+-------+
+        |                      |                      |
+        +----------------------+----------------------+
+                               |
+                +--------------+--------------+
+                |                             |
+        +-------v-------+             +-------v-------+
+        | UTXO / State |             |   AI Oracle   |
+        |   LevelDB    |             | Provider Hub  |
+        +-------+-------+             +-------+-------+
+                |                             |
+                +--------------+--------------+
+                               |
+                        +------v------+
+                        | P2P Network |
+                        |  Protobuf   |
+                        +-------------+
 ```
 
-Key modules:
+Major modules include:
 
-- **`blockchain`** — block validation, chain state, reorg, difficulty, subsidy, UTXO application.
-- **`mempool`** — transaction admission, conflict/double-spend handling, relay policy.
-- **`script_interpreter`** — the stack VM that executes scriptSig + scriptPubKey.
-- **`utxo`** — the UTXO set and transaction application/rollback against LevelDB.
-- **`tx`** — transaction structures, serialization, signing, sighash.
-- **`p2p` / `peer_connection` / `message_handler`** — the networking layer.
-- **`wallet`** — HD key management, balance, transaction construction, token issuance.
-- **`rpc_server`** — the JSON-RPC surface.
-- **`ai_oracle_service` / `ai_providers`** — pluggable AI backends and on-chain response writing.
-
----
-
-## Consensus
-
-TRU is Nakamoto Proof-of-Work; the chain with the greatest cumulative work wins.
-
-**Proof-of-Work.** The 80-byte block header is double-SHA256'd, then the constant `0x21E8` is added into the final 4 bytes (big-endian). The result must be ≤ the target encoded by the header's compact `bits`. The identical puzzle definition is shared by the CPU miner, the GPU (OpenCL) kernel, and the node's verifier, so all three agree bit-for-bit.
-
-**Block validation.** Every block — mined locally, received over P2P, or submitted via RPC — passes the full contextual check *before* it is applied. Validation runs once, up front, before any state locks are taken:
-
-- Structural checks (non-empty, valid hashes, correct sizes).
-- Header hash matches the block hash and satisfies PoW.
-- Previous block exists and height is exactly parent + 1.
-- Timestamp is not more than 2 hours in the future and is greater than the median time past (MTP) of the last 11 blocks.
-- Merkle root matches the transactions.
-- Coinbase is the first (and only) coinbase transaction and pays no more than subsidy + fees.
-- Every non-coinbase input references an existing, unspent UTXO; no double-spends within the block; scripts verify; coinbase inputs respect the 100-block maturity rule.
-- Output values are individually bounded by `MAX_MONEY` and their sum cannot exceed inputs (checked, overflow-safe).
-- The header's `bits` matches the difficulty expected from the parent chain, on **every** block.
-
-**Difficulty retargeting.** Every 480 blocks the target is recomputed from the interval's actual time span against the desired span (480 × 60 s), in 128-bit arithmetic to avoid truncation, and clamped to a 4× move per retarget. Expected difficulty is a pure function of the parent chain, so all honest nodes derive the same value.
-
-**Fork choice.** Each block index entry carries cumulative `chainWork` (parent work + this block's work), populated as blocks are added. On a competing block at or below the tip, the node traces to the common ancestor, sums the competing chain's work, and reorganizes only if the challenger has strictly more work.
-
-**Transaction identity.** A transaction's txid is the double-SHA256 of its serialized bytes. Transactions received over the network are re-hashed on arrival; a peer-supplied id that disagrees with the computed hash causes the transaction to be dropped.
+- `blockchain` — validation, cumulative work, reorganization, difficulty, subsidy, UTXO application.
+- `mempool` — transaction admission, conflict handling, double-spend protection, relay policy.
+- `script_interpreter` — Bitcoin-style stack execution plus TRU's extended opcodes.
+- `utxo` / storage — persistent UTXOs, contract state, token metadata, integrity checks.
+- `tx` — transaction structures, serialization, signing, and sighash.
+- `p2p`, `peer_connection`, `message_handler` — peer networking and message transport.
+- `wallet` — HD keys, addresses, balances, transaction construction, token issuance and transfer.
+- `rpc_server` — JSON-RPC control and application interface.
+- `ai_oracle_service`, `ai_providers` — provider-neutral AI requests and on-chain commitments.
+- `blockexplorer` — HTTP blockchain explorer.
+- `tru-cli` — standalone RPC command-line client.
 
 ---
 
-## Transactions & Scripting
+# Consensus and Proof-of-Work
 
-TRU transactions follow the Bitcoin model: inputs (each referencing a prior output by txid+vout, with an unlocking `scriptSig`) and outputs (each an amount plus a locking `scriptPubKey`).
+TRU follows Nakamoto consensus: the valid chain with the **greatest cumulative Proof-of-Work** wins.
 
-- **Signatures** are ECDSA over secp256k1 (via OpenSSL), with a `SIGHASH_ALL`-style sighash. Standard spends use compressed public keys and P2PKH scripts (`OP_DUP OP_HASH160 <hash> OP_EQUALVERIFY OP_CHECKSIG`).
-- **Script verification** runs `scriptSig` then `scriptPubKey` on a shared stack; the script succeeds if the final stack top is truthy.
-- Both single-signature (`OP_CHECKSIG`, `OP_CHECKSIGVERIFY`) and **multi-signature** (`OP_CHECKMULTISIG`, `OP_CHECKMULTISIGVERIFY`) checks perform real ECDSA verification against the input sighash.
+## SHA256d + 21E8
 
-Standard output types recognized by relay policy: **P2PKH**, **P2SH**, **OP_RETURN** (data / token / inscription), and any script matching the allow-listed contract patterns in `allowed_scripts.json`.
+The TRU block header is double-SHA256 hashed. TRU's `21E8` rule is then applied consistently by:
 
----
+- the node validator,
+- the CPU miner,
+- the OpenCL GPU miner.
 
-## Tokens
+A block hash must satisfy the compact target encoded in the block header's `bits` field.
 
-TRU issues tokens as transactions carrying `OP_RETURN` metadata plus an ownership script. Four token classes are supported, each with a dedicated wallet issuance function.
+## Block validation
 
-| Type | Name | Divisible | Supply | Typical use |
-|---|---|---|---|---|
-| **FT** | Fungible Token | Yes (decimals) | Any | Currencies, rewards, utility tokens |
-| **NFT** | Non-Fungible Token | No | Exactly 1 | Collectibles, art, unique assets |
-| **SFT** | Sentient Fungible Token | Yes | > 1 | Limited editions / evolving assets with AI-oriented metadata |
-| **NCFT** | Neural Canvas Fungible Token | Fungible | Any | AI-generated / evolving digital media |
+Before a block is committed, TRU validates areas including:
 
-In addition, **TRUSCRIPT** inscriptions store arbitrary text on-chain (ordinal-style), with an inscription index, sat number, timestamp, and current-owner tracking that updates on transfer.
+- block/header structure,
+- Proof-of-Work,
+- parent block and height,
+- timestamp and Median Time Past rules,
+- Merkle root,
+- coinbase placement and reward,
+- transaction inputs and referenced UTXOs,
+- same-block double spends,
+- coinbase maturity,
+- script execution,
+- output/value bounds,
+- expected difficulty,
+- maximum serialized block size.
 
-**Issuance flow** (shared by all types):
+## Difficulty
 
-1. Resolve the sender address and find a spendable UTXO for the fee.
-2. Assemble metadata (name, symbol, description, image URL, type-specific fields).
-3. Encode an `ExtendedTokenData` structure and build the `OP_RETURN` scriptPubKey.
-4. Construct the transaction: fee input, token output, change output (minus a 10,000-satoshi fee).
-5. Sign, attach metadata, and either add to the local mempool or broadcast via RPC.
+Difficulty is derived deterministically from the parent chain so miners and validators calculate the same expected value.
 
-**Issuance functions:** `issueExtendedFT`, `issueExtendedNFT`, `issueExtendedSFT`, `issueExtendedNCFT`, plus `inscribeTRUScript` and `transferTRUScript`.
+The active retarget path uses:
 
-```cpp
-// Fungible token
-wallet.issueExtendedFT("FT001", 1000000, "Fungible Coin", "FCO",
-                       "A digital currency", "https://example.com/fco.png", 8);
-
-// Non-fungible token
-wallet.issueExtendedNFT("NFT001", "Rare Gem", "A unique jewel",
-                        "https://example.com/gem.png", "Alice", "https://alice.art");
-
-// Sentient fungible token
-wallet.issueExtendedSFT("SFT002", 50, "Special Edition", "SED",
-                        "Limited series", "https://example.com/sed.png", 0);
-
-// Neural canvas fungible token
-wallet.issueExtendedNCFT("NCFT002", 200, "AI Art Token",
-                         "Evolving artwork", "https://example.com/aiart.png");
+```text
+Target spacing:    60 seconds
+Retarget interval: 60 blocks
 ```
 
-Validation enforces per-type rules: FT/SFT amounts must be non-zero, NFT amount must be exactly 1, token IDs must be present, and owner addresses must be valid. Metadata is stored under a `tokenMetadata:<txid>` key with a double-SHA256 integrity checksum, and ownership is tracked in LevelDB and updated on transfer.
+Retarget movement is clamped to avoid sudden extreme changes. The compact-target calculation preserves the full 256-bit target scale used by mining and validation.
+
+## Fork choice
+
+Each indexed block carries cumulative chain work. TRU can identify a common ancestor and reorganize when a competing valid branch contains strictly more accumulated Proof-of-Work.
 
 ---
 
-## Smart Contracts & Opcodes
+# Large-Block Architecture
 
-TRU's interpreter keeps the Bitcoin scripting foundation and layers custom "New Age" opcodes on top, giving UTXO scripts access to signatures, persistent state, gas metering, modern hashing, deterministic chain-state, and cross-chain bridge primitives.
+TRU's scaling direction is **larger L1 capacity without abandoning deterministic validation**.
 
-### Standard opcodes (implemented)
+The large-block path coordinates three separate limits:
 
-Constants (`OP_0`–`OP_16`, `OP_1NEGATE`); data pushes (`OP_PUSHDATA1/2/4`); flow control (`OP_IF`, `OP_NOTIF`, `OP_ELSE`, `OP_ENDIF`, `OP_VERIFY`, `OP_RETURN`); stack ops (`OP_DUP`, `OP_DROP`, `OP_OVER`, `OP_SWAP`, `OP_NIP`, `OP_2DUP`, `OP_TOALTSTACK`/`OP_FROMALTSTACK`, etc.); splice (`OP_SIZE`, `OP_LEFT`); arithmetic/logic (`OP_ADD`, `OP_SUB`, `OP_MUL`, `OP_DIV`, `OP_MOD`, `OP_EQUAL`, `OP_EQUALVERIFY`, `OP_BOOLAND/OR`); crypto (`OP_RIPEMD160`, `OP_SHA1`, `OP_SHA256`, `OP_HASH160`, `OP_HASH256`); time locks (`OP_CHECKLOCKTIMEVERIFY`).
+```text
+Mempool
+   |
+   v
+Size-aware transaction selection
+   |
+   v
+Miner/template budget
+   |
+   v
+Candidate block
+   |
+   v
+Hard consensus block-size validation
+   |
+   v
+P2P payload / relay capacity
+   |
+   v
+Network peers
+```
 
-### Signature opcodes (implemented)
+The block builder does not blindly copy an arbitrarily large mempool into a candidate block. Transaction selection stops at the configured assembly budget, leaving remaining transactions in the mempool for later blocks.
 
-| Opcode | Hex | Function |
+The P2P limit is kept above the consensus block cap so a valid large block is not accepted locally but rejected by the network transport layer.
+
+### Reusable block-size configuration
+
+After the large-block infrastructure is installed, the block size can be deliberately adjusted with:
+
+```bash
+python3 Block_Size_Increaser_or_Decreaser_Patch.py --show
+python3 Block_Size_Increaser_or_Decreaser_Patch.py --preset 1GB
+python3 Block_Size_Increaser_or_Decreaser_Patch.py --preset 2GB
+python3 Block_Size_Increaser_or_Decreaser_Patch.py --preset 3GB
+```
+
+Arbitrary sizes are also supported within the current transport design:
+
+```bash
+python3 Block_Size_Increaser_or_Decreaser_Patch.py --set-mib 512
+python3 Block_Size_Increaser_or_Decreaser_Patch.py --set-gib 1.5
+```
+
+A block-size increase is not a claim that the node has benchmarked that sustained throughput. Large-block production still depends on validation speed, storage, memory use, propagation, disk I/O, and peer capacity.
+
+---
+
+# Transactions and UTXOs
+
+TRU transactions use the familiar Bitcoin-style model:
+
+```text
+Inputs
+  -> previous txid + output index
+  -> unlocking script
+
+Outputs
+  -> amount
+  -> locking script
+```
+
+Standard spending uses compressed secp256k1 public keys and P2PKH-style scripts.
+
+Supported relay/output patterns include:
+
+- P2PKH
+- P2SH
+- `OP_RETURN`
+- token outputs
+- TRUSCRIPT data
+- allow-listed smart-contract patterns
+
+Transaction IDs are calculated from serialized transaction bytes using double SHA-256. Transactions received from peers are independently re-hashed and validated rather than trusting a peer-supplied transaction ID.
+
+---
+
+# Smart Contracts and Opcodes
+
+TRU extends Bitcoin-style scripting with persistent state, gas accounting, deterministic chain-state access, modern hashes, and token/bridge primitives.
+
+## Signature operations
+
+The live interpreter supports real ECDSA validation for:
+
+- `OP_CHECKSIG`
+- `OP_CHECKSIGVERIFY`
+- `OP_CHECKMULTISIG`
+- `OP_CHECKMULTISIGVERIFY`
+
+Multisig enforces signature/public-key bounds and performs ordered M-of-N verification.
+
+## Stateful execution
+
+TRU's contract execution context can include:
+
+- transaction and input context,
+- sender/caller,
+- contract address,
+- execution height,
+- gas limit and gas used,
+- persistent contract state,
+- deterministic chain context,
+- callback hooks.
+
+Important state and control opcodes include:
+
+| Opcode | Purpose | Status |
 |---|---|---|
-| `OP_CHECKSIG` | 0xac | Real ECDSA verification against the input sighash |
-| `OP_CHECKSIGVERIFY` | 0xad | As above; aborts the script on an invalid signature |
-| `OP_CHECKMULTISIG` | 0xae | Real M-of-N verification (ordered subset of N pubkeys) |
-| `OP_CHECKMULTISIGVERIFY` | 0xaf | As above; aborts the script on failure |
+| `OP_BLOCKTIME` | Current block time | Implemented |
+| `OP_CHAINSTATECHECK` | Deterministic chain-state read | Implemented |
+| `OP_HASHBLAKE2B` | BLAKE2b-256 | Implemented |
+| `OP_SHA3` | SHA3-256 | Implemented |
+| `OP_STORE` | Persist contract key/value | Implemented |
+| `OP_LOAD` | Read contract key/value | Implemented |
+| `OP_CALLER` | Push sender address | Implemented |
+| `OP_CONTRACT_ADDR` | Push contract address | Implemented |
+| `OP_GAS` | Remaining execution gas | Implemented |
+| `OP_HALT` | Halt execution | Implemented |
+| `OP_REVERT` | Revert execution/state | Implemented |
+| `OP_OUTPUTAMOUNT` | Current output amount | Implemented |
+| `OP_MINT_TOKEN` | Mint contract tokens | Implemented |
+| `OP_TOKEN_BALANCE` | Contract token balance | Partial |
+| `OP_BURN_TOKEN` | Burn contract tokens | Partial |
+| `OP_EXTERNALDATA` | Generic external-data opcode | Placeholder |
+| `OP_DATAFEED` | Generic keyed data-feed opcode | Placeholder |
+| `OP_DELEGATECHECK` | Delegate/trusted signature | Stub |
+| NOVO bridge opcodes | Wrapped NOVO bridge path | Scaffold |
+| BSTY bridge opcodes | Wrapped BSTY bridge path | Scaffold |
 
-Multisig follows the standard stack layout `<m> <sig_1..sig_m>` unlocking `<n> <pub_1..pub_n>`, matches signatures against public keys in order without reuse, enforces bounds (n ≤ 20, m ≤ n), and includes the historical extra-element pop for convention compatibility. In explicit simulation mode (no transaction context) signature checks accept, for offline script testing.
+### Gas
 
-### Custom opcodes
+Contract execution is metered. Operations consume different amounts of gas based on complexity, protecting the interpreter from unbounded script execution.
 
-| Opcode | Hex | Function | Status |
-|---|---|---|---|
-| `OP_BLOCKTIME` | 0xf0 | Push current block time | Implemented |
-| `OP_EXTERNALDATA` | 0xf1 | Push external/off-chain data | **Placeholder** (see note) |
-| `OP_DATAFEED` | 0xf2 | Push a keyed data-feed value | **Placeholder** (see note) |
-| `OP_DELEGATECHECK` | 0xf3 | Verify a delegate/trusted signature | **Stub** (returns false) |
-| `OP_CHAINSTATECHECK` | 0xf4 | Read a deterministic chain-state value | Implemented |
-| `OP_HASHBLAKE2B` | 0xf5 | BLAKE2b-256 of top item (libsodium) | Implemented |
-| `OP_SHA3` | 0xf6 | SHA3-256 of top item (OpenSSL) | Implemented |
-| `OP_STORE` | 0xf7 | Write key/value to contract state | Implemented |
-| `OP_LOAD` | 0xf8 | Read value from contract state | Implemented |
-| `OP_CALLER` | 0xf9 | Push sender address | Implemented |
-| `OP_CONTRACT_ADDR` | 0xfa | Push contract address | Implemented |
-| `OP_GAS` | 0xfb | Push remaining gas | Implemented |
-| `OP_HALT` | 0xfc | Halt execution | Implemented |
-| `OP_REVERT` | 0xfd | Revert transaction + state | Implemented |
-| `OP_OUTPUTAMOUNT` | 0xfe | Push current output amount | Implemented |
-| `OP_MINT_TOKEN` | 0xe0 | Mint tokens against sent value | Implemented |
-| `OP_TOKEN_BALANCE` | 0xe1 | Query token balance | Partial |
-| `OP_BURN_TOKEN` | 0xe2 | Burn tokens | Partial |
-| NOVO bridge | 0xb3–0xb6 | wNOVO deposit/redeem/verify | Bridge scaffold |
-| BSTY bridge | 0xb7–0xba | wBSTY deposit/redeem/verify | Bridge scaffold |
+### Deterministic chain state
 
-**`OP_CHAINSTATECHECK`** reads real, deterministic on-chain state — values that are identical on every node at a given height, evaluated relative to the block being validated (not the live tip). Supported keys:
+`OP_CHAINSTATECHECK` reads deterministic values relative to the block being validated, including values such as:
 
-- `block_height` — the height at which the script executes
-- `total_supply` / `total_issued` — cumulative issued TRU (a pure function of height)
-- `block_reward` / `subsidy` — the subsidy at that height
+- block height,
+- total issued supply,
+- block subsidy.
 
-If no chain context is available (e.g. mempool simulation) or the key is unsupported, the opcode fails closed rather than returning fabricated data.
-
-### Execution model
-
-- **Gas.** Every operation charges gas against a per-execution limit (default 1,000,000). Costs scale with complexity — simple ops are cheap; `OP_STORE`, hashing, and signature checks cost more. Overflow of the gas counter is guarded.
-- **State.** `OP_STORE`/`OP_LOAD` read and write a key/value map scoped to the contract address, persisted through the storage layer.
-- **Context.** `ScriptExecutionContext` carries the transaction, input index, scriptPubKey, sighash, sender, gas counters, execution height, a chain reference (for deterministic state), and callback hooks. A simulation mode (`tx == nullptr`) is available for testing scripts without a live transaction.
-
-### Contract types (wallet/CLI)
-
-The wallet can build several contract templates: time locks (`OP_CHECKLOCKTIMEVERIFY`), hash locks (`OP_HASH160` preimage reveal), oracle locks, stateful contracts, multisig, custom compiled scripts, and **MagicLock** — a signature-grinding construct that binds a spend to a target prefix.
+It fails closed when deterministic chain context is unavailable.
 
 ---
 
-## AI Oracle
+# Native Token System
 
-TRU includes a configurable, provider-agnostic AI oracle that routes AI requests to local or cloud language-model providers and anchors the resulting response back onto the TRU blockchain.
+TRU provides four first-class token categories.
 
-The AI subsystem is intentionally separate from Proof-of-Work consensus. Nodes do **not** need access to an AI provider to validate the chain. AI computation occurs off-chain; the resulting oracle transaction is validated using normal TRU transaction and script rules.
+| Type | Name | Characteristics | Example use |
+|---|---|---|---|
+| **FT** | Fungible Token | Divisible, configurable supply | currency, rewards, utility |
+| **NFT** | Non-Fungible Token | Unique, amount = 1 | ownership, collectibles, real assets |
+| **SFT** | Sentient Fungible Token | Fungible/evolving AI-oriented metadata | AI-assisted assets, limited editions |
+| **NCFT** | Neural Canvas Fungible Token | Dynamic media / AI-oriented metadata | evolving art, media, digital experiences |
 
-### AI request and response flow
+Token transactions combine:
 
-A request is represented by an `OP_DATAFEED`-tagged transaction carrying an `AI_REQUEST:<id>` identifier. The oracle monitors pending requests, resolves the provider configured for the requesting user, sends the prompt to that provider, stores the response, and anchors a cryptographic commitment to the response in an `OP_RETURN` transaction funded by the oracle wallet.
+- UTXO funding,
+- an ownership script,
+- structured token metadata,
+- transaction signing,
+- mempool/network relay,
+- persistent metadata and ownership tracking.
+
+Wallet issuance functions include:
 
 ```text
-TRU AI request
-      |
-      v
-ConfigurableAIOracle
-      |
-      v
-AIProviderRegistry
-      |
-      +----------------------+----------------------+----------------------+
-      |                      |                      |
-      v                      v                      v
- Local providers         Cloud providers       Custom provider
-      |                      |                      |
- Oobabooga                OpenAI               Arbitrary JSON API
- Nemotron                 Anthropic / Claude
- Ollama                   xAI / Grok
-                          Google Gemini
-      |                      |                      |
-      +----------------------+----------------------+
-                             |
-                             v
-                      Provider response
-                             |
-                             v
-                     Canonical AI text
-                             |
-                 +-----------+-----------+
-                 |                       |
-                 v                       v
-          Contract storage          SHA-256 digest
-                                         |
-                                         v
-                                 OP_RETURN anchor
-                                         |
-                                         v
-                                   TRU blockchain
-````
+issueExtendedFT
+issueExtendedNFT
+issueExtendedSFT
+issueExtendedNCFT
+```
 
-### Supported AI providers
+Token metadata can include names, symbols, descriptions, media URLs, divisibility, unique IDs, dynamic visual information, and AI-oriented fields depending on token type.
 
-| Provider               | Type           |        Status | Default interface                               | Authentication                          |
-| ---------------------- | -------------- | ------------: | ----------------------------------------------- | --------------------------------------- |
-| **Oobabooga**          | Local          | ✅ Implemented | OpenAI-compatible `/v1/chat/completions`        | Optional `OOBABOOGA_API_KEY`            |
-| **Nemotron**           | Local          | ✅ Implemented | `http://127.0.0.1:5050/v1/chat/completions`     | Optional/recommended `NEMOTRON_API_KEY` |
-| **Ollama**             | Local          | ✅ Implemented | Ollama `/api/chat`                              | None by default                         |
-| **OpenAI**             | Cloud          | ✅ Implemented | Chat Completions-compatible HTTPS transport     | `OPENAI_API_KEY`                        |
-| **Anthropic / Claude** | Cloud          | ✅ Implemented | Anthropic Messages API                          | `ANTHROPIC_API_KEY`                     |
-| **xAI / Grok**         | Cloud          | ✅ Implemented | xAI Chat Completions-compatible HTTPS transport | `XAI_API_KEY`                           |
-| **Google Gemini**      | Cloud          | ✅ Implemented | Gemini `generateContent` REST API               | `GEMINI_API_KEY`                        |
-| **Custom**             | Local or Cloud | ✅ Implemented | User-defined JSON HTTP endpoint                 | `CUSTOM_AI_API_KEY` when required       |
+---
 
-Provider selection is handled by `AIProviderRegistry`. The oracle can therefore change providers without changing TRU consensus or the on-chain response format.
+# TRUSCRIPT Inscriptions
 
-### Provider credentials and `.env`
+TRUSCRIPT provides ordinal-style text/data inscriptions on TRU.
 
-AI-provider secrets should be supplied through environment variables. They should **not** be committed to Git and should not be stored in blockchain contract storage.
+The system tracks information such as:
 
-Create a project-local environment file:
+- inscription identity,
+- inscription index,
+- sat number,
+- timestamp,
+- current ownership,
+- transfers.
+
+Wallet and RPC functionality can create, list, inspect, and transfer TRUSCRIPT assets.
+
+---
+# MagicMiner and MagicLock
+
+TRU includes a native **MagicLock** transaction type and a companion **MagicMiner** tool. MagicLock combines ordinary UTXO ownership with a second computational condition: before the locked TRU can be spent, the owner must produce a valid ECDSA signature whose double-SHA256 hash begins with a chosen hexadecimal prefix.
+
+This is separate from TRU block mining. **MagicMiner does not mine blocks or change chain difficulty.** It performs *signature grinding* for a specific MagicLock UTXO while normal TRU Proof-of-Work continues independently.
+
+## How a MagicLock works
+
+When a MagicLock is created, the wallet constructs a locking script with two requirements:
+
+```text
+                    MAGICLOCK UTXO
+                         |
+          +--------------+--------------+
+          |                             |
+          v                             v
+  HASH256(signature)             Standard P2PKH
+  must begin with                ownership check
+  target prefix                  + ECDSA CHECKSIG
+          |                             |
+          +--------------+--------------+
+                         |
+                         v
+                  UTXO may be spent
+```
+
+The canonical locking script is built as:
+
+```text
+OP_SWAP
+OP_HASH256
+<N>
+OP_LEFT
+<TARGET_PREFIX>
+OP_EQUALVERIFY
+OP_DUP
+OP_HASH160
+<OWNER_PUBKEY_HASH>
+OP_EQUALVERIFY
+OP_CHECKSIG
+```
+
+The first half checks the computational target. The second half preserves normal P2PKH ownership, meaning the spender must still possess the private key belonging to the address that created the MagicLock.
+
+A MagicLock therefore does **not** turn the locked TRU into a public bounty that anyone can claim simply by finding a matching hash. The matching signature must also be a valid ECDSA signature from the lock owner's key.
+
+## Creating a MagicLock
+
+The `createmagiclock` RPC accepts:
+
+```text
+amount
+targetPrefix
+address          optional
+secretData       optional
+dataType         optional
+```
+
+The target must be a non-empty hexadecimal string with an even number of characters.
+
+Example conceptual targets:
+
+| Target | Prefix bytes | Expected signature attempts |
+|---|---:|---:|
+| `00` | 1 | ~256 |
+| `21e8` | 2 | ~65,536 |
+| `000000` | 3 | ~16.8 million |
+| `00000000` | 4 | ~4.29 billion |
+
+Each additional target byte increases expected work by approximately **256×**.
+
+The wallet funds the MagicLock from a spendable TRU UTXO, creates the special locking output, returns change when appropriate, signs the creation transaction, places it in the mempool, and broadcasts it to peers.
+
+## Unlocking: real signature grinding
+
+To unlock a MagicLock, TRU:
+
+1. Loads the locked UTXO.
+2. Extracts the target prefix and the owner's public-key hash from the locking script.
+3. Builds a spending transaction to the requested recipient.
+4. Calculates the transaction sighash using the full MagicLock locking script.
+5. Loads the private key belonging to the lock owner.
+6. Repeatedly generates a random ECDSA nonce (`K`) and creates a valid signature.
+7. Appends `SIGHASH_ALL`.
+8. Computes `SHA256(SHA256(signature))`.
+9. Checks whether the resulting hash begins with the MagicLock target prefix.
+10. When a match is found, constructs the unlocking `scriptSig`, validates the transaction, adds it to the mempool, and broadcasts it.
+
+The unlock script supplies the matching signature twice plus the public key:
+
+```text
+<signature>
+<signature>
+<public-key>
+```
+
+One signature copy is consumed by the prefix-hash condition and the other by the final `OP_CHECKSIG`.
+
+The current C++ grinding routine is bounded to **1,000,000 attempts per unlock call**. As a result, one- and two-byte targets are practical with the present implementation, while targets whose expected search space is substantially larger than one million attempts may require additional engineering or repeated attempts.
+
+## MagicMiner tool
+
+The companion Node.js utility, currently implemented as:
+
+```text
+tru_magic_miner_new.js
+```
+
+provides an interactive interface for:
+
+```text
+1) Create MagicLock
+2) Search MagicLocks
+3) Unlock MagicLock
+4) Change wallet address
+5) Exit
+```
+
+It connects to the TRU node through JSON-RPC, normally on:
+
+```text
+127.0.0.1:8332
+```
+
+and uses the node RPC methods:
+
+```text
+createmagiclock
+listmagiclocks
+unlockmagiclock
+listaddresses
+```
+
+`listmagiclocks` scans confirmed blocks and the mempool, identifies canonical and supported legacy MagicLock script patterns, and reports information including:
+
+```text
+txid
+vout
+amount
+targetPrefix
+owner address
+block height
+spent / unspent status
+```
+
+### Important implementation detail
+
+The animated **"Mining & Flipping Hashes"** display in the JavaScript MagicMiner is a user-interface animation. The actual cryptographic signature grinding is performed by the TRU C++ wallet/node inside `unlockMagicLock()`.
+
+The node extracts the real target from the UTXO and performs the ECDSA grind against that target before the spend can pass script validation.
+
+## Optional attached data
+
+A MagicLock creation request can optionally include small metadata or data in an `OP_RETURN` output. The current RPC path supports text or encoded file data and associates it with `MAGIC_SECRET` metadata.
+
+This feature is presently best treated as **experimental attached-data functionality, not secure secret storage**.
+
+The current RPC implementation derives the data key deterministically from the MagicLock target prefix and the owner's public-key hash and uses a simple XOR transformation for this path. Because both the target and public-key hash are visible in the MagicLock script, this mechanism should not be relied upon to keep sensitive information confidential until the unlock occurs.
+
+A future hardened MagicLock secret system should use a true unlock-dependent secret, authenticated encryption, or another construction in which the decryption key cannot be derived solely from public on-chain values.
+
+For larger documents or media, store the content externally and place only a cryptographic hash, content identifier, or encrypted reference on-chain.
+
+## RPC examples
+
+Create a MagicLock:
 
 ```bash
-cd ~/NEW_TRU
-nano .env
+curl -sS \
+  -H 'Content-Type: application/json' \
+  --data '{
+    "jsonrpc":"2.0",
+    "id":1,
+    "method":"createmagiclock",
+    "params":{
+      "amount":0.001,
+      "targetPrefix":"21e8"
+    }
+  }' \
+  http://127.0.0.1:8332/rpc
 ```
 
-Example:
-
-```text
-# Cloud AI providers
-OPENAI_API_KEY=
-XAI_API_KEY=
-ANTHROPIC_API_KEY=
-GEMINI_API_KEY=
-
-# Local/private AI providers
-NEMOTRON_API_KEY=
-OOBABOOGA_API_KEY=
-
-# Generic custom provider
-CUSTOM_AI_API_KEY=
-```
-
-Only populate the providers you actually use.
-
-Protect the file:
+List MagicLocks:
 
 ```bash
-chmod 600 ~/NEW_TRU/.env
+curl -sS \
+  -H 'Content-Type: application/json' \
+  --data '{
+    "jsonrpc":"2.0",
+    "id":1,
+    "method":"listmagiclocks",
+    "params":{}
+  }' \
+  http://127.0.0.1:8332/rpc
 ```
 
-Add the following to `.gitignore`:
-
-```gitignore
-# Local secrets / API credentials
-.env
-.env.*
-!.env.example
-```
-
-An optional `.env.example` may be committed with empty values:
-
-```text
-OPENAI_API_KEY=
-XAI_API_KEY=
-ANTHROPIC_API_KEY=
-GEMINI_API_KEY=
-NEMOTRON_API_KEY=
-OOBABOOGA_API_KEY=
-CUSTOM_AI_API_KEY=
-```
-
-### Loading `.env` before starting TRU
-
-The TRU C++ process does **not** automatically parse `.env` files. Load the file into the process environment before launching the node:
+Unlock one:
 
 ```bash
-cd ~/NEW_TRU
-
-set -a
-source .env
-set +a
+curl -sS \
+  -H 'Content-Type: application/json' \
+  --data '{
+    "jsonrpc":"2.0",
+    "id":1,
+    "method":"unlockmagiclock",
+    "params":{
+      "txid":"<MAGICLOCK_TXID>",
+      "vout":0,
+      "recipient":"<TRU_ADDRESS>"
+    }
+  }' \
+  http://127.0.0.1:8332/rpc
 ```
 
-Then start TRU from that same shell.
+## Why MagicLock is different
 
-The variables can also be exported individually:
-
-```bash
-export OPENAI_API_KEY="..."
-export XAI_API_KEY="..."
-export ANTHROPIC_API_KEY="..."
-export GEMINI_API_KEY="..."
-export NEMOTRON_API_KEY="..."
-export OOBABOOGA_API_KEY="..."
-export CUSTOM_AI_API_KEY="..."
-```
-
-To verify that a variable exists without printing the secret:
-
-```bash
-test -n "$OPENAI_API_KEY" && echo "OPENAI_API_KEY loaded"
-test -n "$GEMINI_API_KEY" && echo "GEMINI_API_KEY loaded"
-test -n "$NEMOTRON_API_KEY" && echo "NEMOTRON_API_KEY loaded"
-```
-
-Do not use `echo $OPENAI_API_KEY` or similar commands in shared terminals, logs, screenshots, or shell transcripts.
-
-For Docker-based launches, the same file can be supplied with Docker's environment-file mechanism:
-
-```bash
-docker run --env-file ~/NEW_TRU/.env ...
-```
-
-### Provider authentication
-
-#### OpenAI
-
-Credential:
+A normal P2PKH TRU output asks one primary question:
 
 ```text
-OPENAI_API_KEY
+Can you prove ownership of this private key?
 ```
 
-TRU sends the key using Bearer authentication:
+A MagicLock asks two:
 
 ```text
-Authorization: Bearer <OPENAI_API_KEY>
+Can you prove ownership of this private key?
+
+AND
+
+Can you produce a valid transaction signature
+whose HASH256 begins with the required target?
 ```
 
-#### xAI / Grok
+That gives TRU a native **proof-conditioned UTXO** primitive that can be used for experiments with computational locks, puzzles, delayed-effort spends, game mechanics, proof challenges, and other applications that combine ownership with configurable computational work.
 
-Credential:
+---
+
+# AI Oracle
+
+TRU includes a **provider-agnostic AI oracle system**.
+
+The important architectural decision is that **AI inference is not part of Proof-of-Work consensus**.
+
+Different LLMs can produce different text. Requiring every validator to independently run an AI model would therefore make deterministic consensus unsafe.
+
+TRU separates the two:
 
 ```text
-XAI_API_KEY
+AI request
+   |
+   v
+Configured AI provider
+   |
+   v
+AI computation off-chain
+   |
+   +----------------------+
+   |                      |
+   v                      v
+Full response          SHA-256 commitment
+storage                   |
+                           v
+                    OP_RETURN anchor
+                           |
+                           v
+                     TRU blockchain
 ```
 
-TRU sends the key using Bearer authentication:
+The blockchain validates the resulting TRU transaction normally. Nodes do not need access to the model that produced the response.
 
-```text
-Authorization: Bearer <XAI_API_KEY>
-```
+## Supported provider layer
 
-#### Anthropic / Claude
+The current provider abstraction includes:
 
-Credential:
+### Local / private
 
-```text
-ANTHROPIC_API_KEY
-```
+- Nemotron
+- Oobabooga
+- Ollama
+- custom JSON/OpenAI-compatible endpoints
 
-TRU uses Anthropic's native Messages API authentication:
+### Cloud
 
-```text
-x-api-key: <ANTHROPIC_API_KEY>
-anthropic-version: 2023-06-01
-```
+- OpenAI
+- Anthropic / Claude
+- xAI / Grok
+- Google Gemini
 
-#### Google Gemini
+Provider selection can change without changing TRU consensus or the on-chain commitment format.
 
-Credential:
+Secrets belong in environment variables or protected local configuration and should never be committed to the blockchain.
 
-```text
-GEMINI_API_KEY
-```
-
-TRU uses the Gemini REST API and sends the key in the Google API-key header:
-
-```text
-x-goog-api-key: <GEMINI_API_KEY>
-```
-
-The default Gemini model is:
-
-```text
-gemini-3.6-flash
-```
-
-The default API base is:
-
-```text
-https://generativelanguage.googleapis.com/v1beta/models
-```
-
-TRU converts its common message format into Gemini's native request format:
-
-```text
-system    -> systemInstruction
-user      -> contents[].role = "user"
-assistant -> contents[].role = "model"
-```
-
-Gemini responses are normalized from:
-
-```text
-candidates[0].content.parts[].text
-```
-
-into the same internal text representation used by the other providers.
-
-#### Nemotron
-
-The built-in Nemotron provider targets the local OpenAI-compatible harness:
-
-```text
-http://127.0.0.1:5050/v1/chat/completions
-```
-
-Credential:
-
-```text
-NEMOTRON_API_KEY
-```
-
-Example Nemotron server `.env`:
-
-```text
-NEMOTRON_API_KEY=replace_with_a_long_random_secret
-```
-
-TRU should receive the same key:
-
-```bash
-export NEMOTRON_API_KEY="replace_with_a_long_random_secret"
-```
-
-When a key is present, TRU sends:
-
-```text
-Authorization: Bearer <NEMOTRON_API_KEY>
-```
-
-The Nemotron harness can also permit genuinely local loopback traffic without a key when its trusted-local setting is enabled. Using the key is still recommended because the same configuration remains protected if the service is later exposed through a LAN interface, reverse proxy, tunnel, or remote host.
-
-The Nemotron `/v1/chat/completions` endpoint routes requests through the full local harness rather than directly calling only the underlying model. Depending on the harness configuration, a TRU request can therefore use the local model together with RAG, tools, validation, orchestration, memory, and other Nemotron pipeline features.
-
-#### Oobabooga
-
-Oobabooga is a local OpenAI-compatible provider.
-
-Credential, when the local server requires one:
-
-```text
-OOBABOOGA_API_KEY
-```
-
-When set, TRU sends:
-
-```text
-Authorization: Bearer <OOBABOOGA_API_KEY>
-```
-
-If the local Oobabooga endpoint does not require authentication, the variable may be left unset.
-
-#### Ollama
-
-The default Ollama provider uses the local `/api/chat` endpoint and does not require an API key in the default local configuration.
-
-#### Custom provider
-
-Credential:
-
-```text
-CUSTOM_AI_API_KEY
-```
-
-The Custom provider supports a user-defined endpoint and configurable authorization header/prefix. This allows TRU to communicate with another private or commercial JSON API without adding another provider class.
-
-### API-key persistence policy
-
-Provider configuration may contain values such as provider name, model, endpoint, or request options. API keys are treated differently.
-
-TRU removes `api_key` from provider configuration before that configuration is written to persistent contract storage. Secrets therefore remain process-local and should be restored from environment variables after a restart.
-
-This prevents cloud and private-service API credentials from becoming part of persistent blockchain/application state.
-
-### Oracle wallet credentials
-
-AI-provider credentials and the blockchain oracle signing key are separate classes of secrets.
-
-The oracle wallet currently loads its blockchain address and WIF from `tru.conf`:
-
-```ini
-[default]
-oracle.address=<TRU_ORACLE_ADDRESS>
-oracle.wif=<TRU_ORACLE_PRIVATE_WIF>
-```
-
-The WIF controls the oracle wallet and is used to sign the transaction that anchors the AI response onto TRU. Protect any `tru.conf` containing a WIF:
-
-```bash
-chmod 600 ~/NEW_TRU/tru.conf
-```
-
-Do not commit a production `tru.conf` containing `oracle.wif` to Git.
-
-Recommended separation:
-
-```text
-tru.conf
-├── node / network configuration
-├── oracle.address
-└── oracle.wif
-
-.env / process environment
-├── OPENAI_API_KEY
-├── XAI_API_KEY
-├── ANTHROPIC_API_KEY
-├── GEMINI_API_KEY
-├── NEMOTRON_API_KEY
-├── OOBABOOGA_API_KEY
-└── CUSTOM_AI_API_KEY
-```
-
-### On-chain response anchoring
-
-The complete AI response is retained by the oracle storage layer. The blockchain transaction stores a compact anchor rather than placing an arbitrarily large model response directly on-chain.
-
-The response anchor contains information including:
-
-```text
-AI_RESP_V1
-request ID
-provider
-SHA-256 digest
-short response preview
-```
-
-The digest cryptographically commits the stored response to the blockchain record.
-
-This separates:
-
-```text
-AI computation
-      |
-      v
-response storage
-      |
-      v
-SHA-256 commitment
-      |
-      v
-TRU transaction
-      |
-      v
-blockchain confirmation
-```
-
-The underlying AI provider can therefore change without changing TRU consensus.
-
-### Provider independence
-
-TRU can operate with:
-
-* fully local/open-source AI,
-* locally hosted private AI,
-* commercial cloud AI,
-* OpenAI-compatible custom servers,
-* native provider APIs,
-* or a mixture of providers selected per user or application.
-
-No single AI company, hosted API, or language model is required for the TRU blockchain to function.
+> The generic `OP_EXTERNALDATA` and `OP_DATAFEED` interpreter opcodes remain placeholders. They are separate from the implemented AI-oracle service and must not be confused with live deterministic consensus data feeds.
 
 ---
 
 # Living Token Evolution
 
-TRU supports **AI-assisted Living Token Evolution**, allowing supported tokens to update their off-chain metadata over time while preserving a verifiable history of each evolution.
-
-Instead of replacing the original token or rewriting its history, each evolution creates a new persisted epoch and links it to the previous metadata state.
-
-A compact cryptographic commitment to that evolution is then submitted to the TRU blockchain through a normal transaction.
-
-## What Token Evolution Does
-
-A Living Token evolution can use an AI provider to generate a new version of the token's metadata based on its current state.
-
-The evolution system:
+TRU's **Living Token Evolution** system allows supported tokens to evolve AI-assisted metadata while preserving a cryptographically linked history.
 
 ```text
-Existing Token
-      │
-      ▼
-Load Latest Persisted State
-      │
-      ▼
-AI Provider
-      │
-      ▼
-Generate New Metadata
-      │
-      ▼
-Epoch N → Epoch N+1
-      │
-      ▼
-Hash Previous + New Metadata
-      │
-      ▼
-Persist Evolution Record
-      │
-      ▼
-Queue Blockchain Anchor
-      │
-      ▼
-Oracle Signs Transaction
-      │
-      ▼
-TRU Mempool
-      │
-      ▼
-Next Mined Block
-      │
-      ▼
-On-Chain Evolution Commitment
+Existing token state
+       |
+       v
+Load latest epoch
+       |
+       v
+AI provider
+       |
+       v
+Generate next metadata state
+       |
+       v
+Epoch N -> Epoch N+1
+       |
+       v
+Hash previous + new metadata
+       |
+       v
+Persist evolution record
+       |
+       v
+Queue signed TRU anchor
+       |
+       v
+Mempool
+       |
+       v
+Mined block
+       |
+       v
+On-chain evolution commitment
 ```
 
-The complete AI-generated metadata does **not** need to be stored directly on-chain.
-
-Instead, TRU places a compact evolution commitment into an `OP_RETURN` transaction containing information such as:
+The entire generated document does not need to be placed in every block. A compact commitment can contain fields such as:
 
 ```text
 TRU_EVOLVE_V1
@@ -733,672 +764,729 @@ previous_metadata_hash
 new_metadata_hash
 ```
 
-This provides an auditable connection between the previous and new token states without unnecessarily putting the full AI response into the blockchain.
+This allows an evolving digital asset to retain a verifiable timeline while AI providers, models, or off-chain storage systems change over time.
+
+Potential applications include:
+
+- AI-assisted digital identities,
+- evolving game assets,
+- digital twins,
+- tokenized equipment or property records,
+- autonomous-agent identity/state,
+- dynamic media,
+- supply-chain state,
+- auditable AI-generated asset histories.
 
 ---
 
-## Supported Evolution Providers
+# Interactive Node CLI
 
-Evolution can be performed using configured AI providers.
+Run the node with:
 
-For example:
+```bash
+./tru_advanced --cli
+```
+
+The node includes a responsive terminal interface rather than requiring raw RPC calls for everyday operation.
+
+## Full and compact menus
+
+The interface automatically chooses a layout that fits the terminal. Press:
 
 ```text
-nemotron
-openai
-anthropic
-grok
-gemini
-ollama
-oobabooga
-custom
+M
 ```
 
-Provider availability depends on how the node was configured and which API keys or local AI services are available.
-
-Example using the local Nemotron provider:
-
-```bash
-./tru_evolve_token \
-  --token-id f0e6d042 \
-  --provider nemotron \
-  --db /path/to/data/utxo
-```
-
----
-
-# Normal Evolution Workflow
-
-For a normal TRU installation, there are two parts involved:
-
-1. `tru_evolve_token` creates and persists the new evolution state.
-2. `tru_advanced` detects the queued evolution and creates the on-chain anchor transaction.
-
-Because `tru_evolve_token` accesses the LevelDB database directly, **do not run it while `tru_advanced` has the same database open.**
-
-The normal workflow is therefore:
+or:
 
 ```text
-Stop node
-   ↓
-Run token evolution
-   ↓
-Verify latest state
-   ↓
-Restart node
-   ↓
-Oracle submits anchor transaction
-   ↓
-Miner confirms transaction
+m
 ```
+
+to toggle between **FULL** and **COMPACT** menu modes.
+
+The menu uses absolute terminal positioning so it does not continually scroll or stack duplicate copies. Chain information, the TRU banner, command output, and mining dashboard occupy separate screen areas.
+
+### Interactive operations
+
+The current menu exposes:
+
+| Option | Function |
+|---|---|
+| 1 | Create new wallet |
+| 2 | Load wallet |
+| 3 | Save wallet |
+| 4 / 4a | Generate address / view private keys |
+| 5 | Send TRU |
+| 6 | Check balance |
+| 7 / 7a | CPU mine / GPU mine |
+| 8 | View chain information |
+| 9 | List peers |
+| 10 | Lookup block by hash |
+| 11 | Exit |
+| 12 / 12a / 12b | Token and smart-contract token views |
+| 13 | Issue FT/NFT/SFT/NCFT |
+| 13a | Create TRUSCRIPT |
+| 13b | List wallet TRUSCRIPT |
+| 13c | Send TRUSCRIPT |
+| 13d | Create AI tokens |
+| 14 | Show wallet addresses |
+| 15 | Send tokens |
+| 16 | Connect to peer |
+| 17 | Send peer message |
+| 18 | Create smart contract |
+| 18a | Get current pubkey hash |
+| 18b | Bridge contract options |
+| 19 | List mempool transactions |
+| 20 / 20a | Query/list contract state |
+| 21 | Vote on contract |
+| 22 | View voting results |
+| 23 | Mint contract tokens |
+| 24 | Contract-token supply |
+| `sync` | Check blockchain synchronization |
+| `C` | Clear output |
+| `M` | Toggle full/compact menu |
+
+## Live mining dashboard
+
+While mining is active, the terminal can display node-reported miner information including:
+
+- mining state,
+- current hashrate,
+- blocks found,
+- block reward,
+- chain height,
+- current difficulty,
+- last miner report age,
+- algorithm,
+- animated activity indicator.
+
+The CPU miner dashboard uses the actual difficulty bits from its current candidate instead of a hard-coded display value.
 
 ---
 
-# Step 1 — Stop the Node
+# `tru-cli`
 
-If `tru_advanced` is currently running, shut it down normally.
+TRU also includes a standalone **Bitcoin-style RPC command-line client**.
 
-Verify that it has stopped:
-
-```bash
-pgrep -af tru_advanced
-```
-
-There should be no running `tru_advanced` process using the database.
-
----
-
-# Step 2 — Load the AI Environment
-
-If using providers configured through `.env`:
-
-```bash
-cd ~/NEW_TRU
-
-set -a
-source .env
-set +a
-```
-
-For a local Nemotron service, for example:
-
-```bash
-echo "$NEMOTRON_ENDPOINT"
-```
-
-Typical configuration:
+The interactive `--cli` menu and `tru-cli` serve different purposes:
 
 ```text
-http://127.0.0.1:5051/v1/chat/completions
+tru_advanced --cli
+    -> operator-friendly interactive node interface
+
+tru-cli
+    -> scriptable command-line RPC client
 ```
 
----
-
-# Step 3 — Check the Current Token State
-
-Before evolving the token, inspect its latest persisted evolution:
+Typical usage:
 
 ```bash
-cd ~/NEW_TRU
+cd build-native/bin
 
-./build-native/bin/tru_evolve_token \
-  --token-id f0e6d042 \
-  --db /NEW_TRU/build-native/bin/data/utxo \
-  --show-latest
+./tru-cli getinfo
+./tru-cli getbalance
+./tru-cli getblockcount
+./tru-cli getchaininfo
+./tru-cli getconnectioncount
+./tru-cli getpeerinfo
+./tru-cli getrawmempool
 ```
 
-This displays the most recently persisted epoch.
+Query another address:
 
-For example:
+```bash
+./tru-cli getbalance <TRU_ADDRESS>
+```
+
+Remote node:
+
+```bash
+./tru-cli -rpcconnect=<NODE_IP> -rpcport=8332 getinfo
+```
+
+Read connection settings from a TRU config file:
+
+```bash
+./tru-cli -conf=./tru.conf getinfo
+```
+
+## Raw RPC passthrough
+
+Friendly wrappers cover common commands, but `raw` can call any RPC method exposed by the node:
+
+```bash
+./tru-cli raw getblocktemplate
+./tru-cli raw gettokenmetadata '{"tokenID":"example"}'
+./tru-cli raw listunspent '{"address":"<TRU_ADDRESS>"}'
+./tru-cli raw verifytokenbalance '{"address":"<TRU_ADDRESS>","tokenID":"example"}'
+```
+
+Useful options include:
 
 ```text
-Token: f0e6d042
-Epoch: 1
-Provider: nemotron
-...
+-rpcconnect=<ip>
+-rpcport=<port>
+-conf=<file>
+-json
+-timeout=<seconds>
+-h / --help
 ```
 
 ---
 
-# Step 4 — Evolve the Token
+# Wallets
 
-Run:
+TRU uses an HD wallet core with BIP32-style key derivation.
+
+Wallet functionality includes:
+
+- seed-derived addresses,
+- Base58Check P2PKH addresses,
+- balance and UTXO discovery,
+- transaction construction,
+- ECDSA transaction signing,
+- local or RPC operation,
+- token issuance and transfer,
+- TRUSCRIPT creation and transfer,
+- smart-contract creation,
+- MagicLock create/unlock,
+- external private-key import.
+
+User interfaces include:
+
+- the node's interactive CLI,
+- wallet CLI functionality,
+- a Qt desktop GUI,
+- RPC access,
+- `tru-cli` for node/RPC operations.
+
+Protect wallet files and WIF/private-key material carefully.
+
+---
+
+# Mining
+
+TRU supports both CPU and GPU Proof-of-Work mining.
+
+## CPU
+
+Example standalone CPU miner:
 
 ```bash
-./build-native/bin/tru_evolve_token \
-  --token-id f0e6d042 \
-  --provider nemotron \
-  --db /NEW_TRU/build-native/bin/data/utxo
+./tru_miner_cpu \
+  --node-ip 127.0.0.1 \
+  --node-port 8332 \
+  --mineraddr <TRU_ADDRESS> \
+  --threads 4
 ```
 
-A successful evolution should advance the token exactly one epoch:
+## GPU
+
+TRU includes OpenCL GPU mining using the same SHA256d + 21E8 consensus puzzle validated by the node.
+
+GPU mining requires:
+
+- a compatible GPU,
+- OpenCL runtime/headers,
+- appropriate vendor drivers.
+
+## Mining flow
 
 ```text
-Epoch 1 → Epoch 2
+Node
+  |
+  | getblocktemplate
+  v
+Miner
+  |
+  | nonce search
+  v
+Valid PoW
+  |
+  | submitblock
+  v
+Node validation
+  |
+  v
+P2P relay
 ```
 
-The evolution engine preserves the previous metadata hash and produces a new metadata hash.
-
-The new state is persisted before the blockchain anchor is submitted.
+Miners can report activity and hashrate to the node, allowing the interactive interface to show live mining information.
 
 ---
 
-# Step 5 — Verify the New Evolution
+# P2P Networking
 
-While the node is still stopped:
+TRU peers communicate over TCP using checksummed, length-prefixed Protobuf messages.
 
-```bash
-./build-native/bin/tru_evolve_token \
-  --token-id f0e6d042 \
-  --db /NEW_TRU/build-native/bin/data/utxo \
-  --show-latest
-```
+Message families include:
 
-The new epoch should now be shown as the latest persisted state.
+- `VERSION` / `VERACK`
+- `ADDR`
+- `INV`
+- `GETDATA`
+- `BLOCK`
+- `TX`
+- `PING` / `PONG`
+- `HEIGHT`
+- `GET_BLOCK`
+- `GET_HEIGHT`
+- `BLOCK_NOT_FOUND`
+
+The network layer includes:
+
+- peer handshakes,
+- block and transaction relay,
+- height gossip and synchronization,
+- local revalidation of incoming transactions,
+- stale-peer timeouts,
+- per-IP connection controls,
+- blacklist/Sybil-protection facilities,
+- checksummed payloads.
+
+Large-message sending retries partial TCP `send()` results rather than assuming a single write transmits an entire large block.
+
+The current P2P Frame V1 uses a 32-bit payload-length field. This is why 4 GiB+ block transport requires a future framing/streaming upgrade rather than only increasing a numeric block limit.
 
 ---
 
-# Step 6 — Restart the TRU Node
+# Storage
 
-Start `tru_advanced` again:
+TRU persists chain and application state in LevelDB.
 
-```bash
-cd ~/NEW_TRU/build-native/bin
+Storage functionality includes:
 
-./tru_advanced \
-  --datadir /NEW_TRU/build-native/bin/data/utxo \
-  --cli \
-  --rpcport 8332
-```
+- Snappy compression,
+- LRU block caching,
+- thread-safe database access,
+- batched writes,
+- prefix iteration,
+- compaction,
+- repair,
+- integrity verification,
+- per-value checksums.
 
-The AI Oracle service monitors the persisted evolution queue.
+UTXO records include the creation height and coinbase status needed to enforce maturity rules.
 
-When it finds the new evolution, it creates and signs a TRU transaction containing the evolution commitment.
+Contract state, token metadata, ownership data, inscriptions, and evolution records are stored through the same persistent storage layer where appropriate.
 
 ---
 
-# Step 7 — Watch the Evolution Anchor
+# JSON-RPC API
 
-From another terminal:
-
-```bash
-cd ~/NEW_TRU/build-native/bin
-
-tail -f Tru_debug.log | \
-grep --line-buffered -iE \
-'TokenEvolutionAnchor|anchor_queue|signTransaction'
-```
-
-A successful submission looks similar to:
+The node exposes JSON-RPC at:
 
 ```text
-[TokenEvolutionAnchor] Submitted token=f0e6d042 epoch=2 txid=<TXID>
-```
-
-You may also see:
-
-```text
-[TokenEvolutionAnchor] Anchored token=f0e6d042 epoch=2 txid=<TXID>
-```
-
-### Important
-
-In the current implementation, this means the anchor transaction was successfully created/submitted and associated with the evolution record.
-
-**Blockchain confirmation occurs when a miner includes that transaction in a block.**
-
----
-
-# Step 8 — Check the Mempool
-
-The TRU JSON-RPC interface can be used to see whether the evolution transaction is waiting to be mined.
-
-```bash
-curl -sS \
-  -H 'Content-Type: application/json' \
-  --data '{
-    "jsonrpc":"2.0",
-    "id":1,
-    "method":"getrawmempool",
-    "params":{}
-  }' \
-  http://127.0.0.1:8332/rpc | python3 -m json.tool
+http://127.0.0.1:8332/rpc
 ```
 
 Example:
 
-```json
-{
-    "id": 1,
-    "jsonrpc": "2.0",
-    "result": [
-        "0af06ae9f80d399a8ac41ddeb00ad3a86949498c5adc05bf553a438d2e9d3a6e"
-    ]
-}
-```
-
-This means:
-
-```text
-0af06ae9...d3a6e
-```
-
-is currently in the TRU mempool waiting for inclusion in a block.
-
-For an evolution transaction, the flow is now:
-
-```text
-Evolution complete       ✅
-Evolution persisted      ✅
-Anchor transaction built ✅
-Transaction signed       ✅
-Transaction in mempool   ✅
-Blockchain confirmation  ⏳
-```
-
----
-
-# Step 9 — Mine the Anchor
-
-A miner can now mine the next TRU block.
-
-For example:
-
-```bash
-cd ~/NEW_TRU/build-native/bin
-
-./tru_miner_cpu \
-  --node-ip 127.0.0.1 \
-  --node-port 8332 \
-  --mineraddr YOUR_TRU_ADDRESS \
-  --threads 4
-```
-
-The built-in CPU/GPU mining options may also be used.
-
-Once the transaction is included in a block, the anchor leaves the mempool.
-
----
-
-# Step 10 — Verify Confirmation
-
-Run `getrawmempool` again:
-
 ```bash
 curl -sS \
   -H 'Content-Type: application/json' \
-  --data '{
-    "jsonrpc":"2.0",
-    "id":1,
-    "method":"getrawmempool",
-    "params":{}
-  }' \
-  http://127.0.0.1:8332/rpc | python3 -m json.tool
+  --data '{"jsonrpc":"2.0","id":1,"method":"getchaininfo","params":{}}' \
+  http://127.0.0.1:8332/rpc
 ```
 
-If no other transactions are waiting, the response will be:
+TRU exposes a broad RPC surface. Representative groups include:
 
-```json
-{
-    "id": 1,
-    "jsonrpc": "2.0",
-    "result": []
-}
-```
-
-If the evolution transaction was previously present and disappears immediately after a successful block is mined, it has progressed out of the mempool and into block processing.
-
----
-
-# How a Normal User Would Use Evolution
-
-The commands above expose the complete low-level workflow for operators and developers.
-
-A normal user does **not need to manually inspect LevelDB, calculate metadata hashes, construct `OP_RETURN` scripts, sign anchor transactions, or manage the evolution queue.**
-
-Conceptually, the user's workflow is simply:
+## Chain and blocks
 
 ```text
-Choose Token
-     ↓
-Choose AI Provider
-     ↓
-Evolve Token
-     ↓
-Review New State
-     ↓
-TRU automatically queues blockchain proof
-     ↓
-Node submits anchor transaction
-     ↓
-Network miner confirms it
+getinfo
+getchaininfo
+getblockcount
+getblock
+getblockbyheight
+getblocktemplate
+submitblock
 ```
 
-A future wallet/UI can therefore expose evolution as something as simple as:
+## Transactions and UTXOs
 
 ```text
-Token:       My Living Token
-Epoch:       4
-AI Provider: Nemotron
-
-[ Evolve Token ]
+sendrawtransaction
+createrawtransaction
+signrawtransactionwithkey
+gettransaction
+getrawtransaction
+decoderawtransaction
+gettxout
+listtransactions
+listunspent
+getrawmempool
+getmempooltransactions
 ```
 
-with an evolution history such as:
+## Wallet and addresses
 
 ```text
-Epoch 0  Original
-Epoch 1  Nemotron     Confirmed
-Epoch 2  Nemotron     Confirmed
-Epoch 3  Gemini       Confirmed
-Epoch 4  Nemotron     Pending Confirmation
+getbalance
+getnewaddress
+listaddresses
+getaddresstransactions
 ```
 
-The underlying cryptographic and blockchain operations remain handled by TRU.
-
----
-
-# Evolution State vs. Blockchain Anchor
-
-These are intentionally separate concepts.
-
-**Evolution State**
-
-Contains the complete living-token evolution information and AI-generated metadata.
-
-Persisted locally under evolution records such as:
+## Tokens and inscriptions
 
 ```text
-TOKEN_EVOLUTION/latest:<tokenID>
-TOKEN_EVOLUTION/epoch:<tokenID>:<epoch>
+issuetoken
+sendtoken
+gettokenutxo
+gettokenmetadata
+verifytokenbalance
+inscribeTRUScript
+transferTRUScript
+getTRUScripts
+getTRUScriptDetails
 ```
 
-**Blockchain Anchor**
-
-Contains only the compact information needed to cryptographically prove the evolution.
-
-The blockchain therefore acts as an immutable timestamped proof of:
+## Contracts
 
 ```text
-Token X
-changed from metadata hash A
-to metadata hash B
-at epoch N
-using provider Y
+createsmartcontract
+createcontracttransaction
+getcontracts
+createmagiclock
+unlockmagiclock
+listmagiclocks
 ```
-
-without requiring the blockchain to store the entire AI-generated document.
-
----
-
-# Oracle Funding
-
-The evolution oracle must have a spendable TRU UTXO because each evolution anchor is a normal signed blockchain transaction.
-
-Configuration example:
-
-```ini
-[default]
-oracle.address=<TRU_ADDRESS>
-oracle.wallet=tru.dat
-node.ip=127.0.0.1
-node.port=8332
-```
-
-The configured address must belong to `tru.dat`.
-
-Coinbase mining rewards must reach maturity before they can be spent by the oracle.
-
-If the oracle cannot find a usable UTXO, the log may show:
-
-```text
-[TokenEvolutionAnchor] No UTXO large enough for fee
-```
-
-The evolution state itself remains persisted; the anchor stays queued and can be retried after the oracle is funded.
-
----
-
-# Failure Safety
-
-Living Token Evolution is designed so a failure in the blockchain-anchor stage does **not erase the completed AI evolution**.
-
-For example:
-
-```text
-AI succeeds
-↓
-Epoch 4 persisted
-↓
-Node cannot currently pay anchor fee
-↓
-Anchor remains queued
-↓
-Oracle later receives TRU
-↓
-Anchor retried
-↓
-Transaction confirmed
-```
-
-Likewise, an AI-provider failure does not advance the persisted epoch.
-
-This prevents an unsuccessful evolution attempt from corrupting or skipping the token's evolution history.
-
----
-
-## Quick Reference
-
-```bash
-# STOP tru_advanced first.
-
-# Show latest state
-./build-native/bin/tru_evolve_token \
-  --token-id f0e6d042 \
-  --db /NEW_TRU/build-native/bin/data/utxo \
-  --show-latest
-
-# Evolve
-./build-native/bin/tru_evolve_token \
-  --token-id f0e6d042 \
-  --provider nemotron \
-  --db /NEW_TRU/build-native/bin/data/utxo
-
-# Restart node
-cd ~/NEW_TRU/build-native/bin
-
-./tru_advanced \
-  --datadir /NEW_TRU/build-native/bin/data/utxo \
-  --cli \
-  --rpcport 8332
-
-# Watch anchor
-tail -f Tru_debug.log | \
-grep --line-buffered -iE 'TokenEvolutionAnchor|anchor_queue|signTransaction'
-
-# Check mempool
-curl -sS \
-  -H 'Content-Type: application/json' \
-  --data '{
-    "jsonrpc":"2.0",
-    "id":1,
-    "method":"getrawmempool",
-    "params":{}
-  }' \
-  http://127.0.0.1:8332/rpc | python3 -m json.tool
-```
-
-Your current result containing:
-
-```text
-0af06ae9f80d399a8ac41ddeb00ad3a86949498c5adc05bf553a438d2e9d3a6e
-```
-
-is exactly the state you'd expect **between anchor submission and the next mined block**. In other words, for your current test, the next meaningful action is to mine a block and verify that transaction leaves the mempool.
-
----
-## Networking (P2P)
-
-Nodes communicate over TCP using Protobuf messages wrapped in a framed envelope: a 4-byte type, a 4-byte length, a 32-byte SHA-256 payload checksum, and the payload. Messages exceeding 32 MiB are rejected, and the checksum is verified before parsing.
-
-**Message types:** `VERSION`/`VERACK` handshake, `ADDR`, `INV`, `GETDATA`, `BLOCK`, `TX`, `PING`/`PONG`, `HEIGHT`, `GET_BLOCK`, `GET_HEIGHT`, `BLOCK_NOT_FOUND`.
-
-**Behavior:**
-- Non-blocking accept loop with clean shutdown signaling via a self-pipe.
-- Peer connections run their own read loop, send periodic pings, and time out stale links.
-- Height gossip drives synchronization; blocks are requested by height or hash and validated on arrival.
-- Peer management limits connections per IP (Sybil resistance) and tracks activity; an IP blacklist facility (`SybilProtection`) is available.
-- Incoming transactions are re-hashed and revalidated locally rather than trusted.
-
----
-
-## Storage
-
-State is persisted in **LevelDB** through a thread-safe wrapper (`LevelDBStorage`):
-
-- Snappy compression, a 100 MB LRU block cache, and reference-counted DB handles per path.
-- Every stored value carries an integrity checksum; contract and UTXO values use double-SHA256, and reads verify before returning.
-- A legacy single-SHA256 checksum format is auto-detected and transparently migrated on read.
-- Batched writes, prefix iteration, compaction, repair, and a full-database verification pass are supported.
-
-UTXOs are stored as `utxo:<txid>:<vout>` → `height=<H>|<amount>|<scriptHex>[|cb=1]`, capturing the creation height and coinbase flag needed for maturity enforcement.
-
----
-
-## Wallets
-
-TRU ships two wallet front-ends over one HD wallet core.
-
-**Core (HD/BIP32):**
-- Seed-derived keys via libwally, BIP44-style path (purpose/coin/account/change/index).
-- Address generation (Base58Check P2PKH), balance calculation, UTXO discovery.
-- Transaction construction and signing, local-chain or RPC modes.
-- Token issuance/transfer, TRUSCRIPT inscription, smart-contract creation, MagicLock create/unlock.
-- Import of external private keys (PEM or 32-byte hex).
-
-**CLI wallet** — a rich terminal interface (colorized tables, QR display, menus) for wallet management, sending, mining, tokens, TRUSCRIPT, contracts, and mempool/chain inspection.
-
-**Qt GUI wallet** — a tabbed desktop app (Wallet, Send, Tokens, TRUScript, Transactions, Smart Contracts, Settings) with an animated background, theming, auto-refresh, and live block-height display.
-
----
 
 ## Mining
 
-Two miner implementations share the node's `SHA256d + 21E8` definition:
+```text
+startmining
+registerminer
+unregisterminer
+getminerstatus
+getallminers
+reportmineractivity
+```
 
-- **CPU miner** — multithreaded nonce search, tunable thread count.
-- **GPU miner** — an OpenCL kernel (`tru_gpu_miner`) implementing the full double-SHA256 + 21E8 injection on-device, with auto-tuning of work sizes.
+## AI
 
-Miners obtain work via the `getblocktemplate` RPC, search for a valid nonce, and submit via `submitblock`. They report hashrate through `reportmineractivity` and register/unregister with the node. Mining can also be driven directly from the CLI/GUI wallet against the local chain.
+```text
+configureAIProvider
+getAIProviders
+createAIToken
+interactWithAIToken
+getAIResponse
+getAITokenState
+trainAIToken
+```
+
+## Identity / social
+
+```text
+createDID
+createsocialpost
+```
+
+## Network
+
+```text
+getpeerinfo
+```
+
+`tru-cli raw` can access methods that do not yet have a friendly CLI wrapper.
+
+> **Security:** RPC currently has no built-in HTTP authentication. Keep port `8332` on loopback or behind a properly authenticated reverse proxy/firewall.
 
 ---
 
-## RPC API
+# Block Explorer
 
-The node exposes a JSON-RPC endpoint at `http://<bindIP>:<port>/rpc` (default `127.0.0.1:8332`). Requests are JSON with `method`, `params`, and optional `id`; responses carry a `result` or an `error`.
+TRU includes an HTTP block explorer, normally on port:
+
+```text
+8001
+```
+
+Representative endpoints include:
+
+```text
+/api/stats
+/api/blocks
+/block/<hash>
+/api/addresses
+/api/transactions
+/api/address/<address>
+/api/transaction/<txid>
+/api/tokens
+/api/contracts
+/api/miners
+```
+
+The explorer can run with the node or as a standalone explorer process against the configured TRU data environment.
+
+---
+
+# Building and Running
+
+## Dependencies
+
+Core dependencies include:
+
+- C++17 compiler
+- CMake
+- OpenSSL
+- libsodium
+- LevelDB
+- Protobuf
+- libwally-core
+- libcurl
+- nlohmann/json
+- cpp-httplib
+- cxxopts
+- OpenCL for GPU mining
+- Qt when building the desktop GUI
+
+## Build
+
+The project includes a rebuild workflow:
 
 ```bash
-curl -X POST http://127.0.0.1:8332/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"method":"getchaininfo","params":{},"id":1}'
+cd ~/NEW_TRU
+./rebuild.sh
 ```
 
-**Selected methods** (~65 total):
+Binaries are produced under the native build output, typically:
 
-*Chain & blocks:* `getchaininfo`, `getblockcount`, `getblock`, `getblockbyheight`, `getblocktemplate`, `submitblock`.
+```text
+build-native/bin/
+```
 
-*Transactions:* `sendrawtransaction`, `createrawtransaction`, `signrawtransactionwithkey`, `gettransaction`, `getrawtransaction`, `decoderawtransaction`, `gettxout`, `listtransactions`, `getrawmempool`, `getmempooltransactions`.
-
-*Addresses & UTXOs:* `getnewaddress`, `listaddresses`, `listunspent`, `getaddresstransactions`.
-
-*Tokens & inscriptions:* `issuetoken`, `sendtoken`, `gettokenutxo`, `gettokenmetadata`, `verifytokenbalance`, `inscribeTRUScript`, `transferTRUScript`, `getTRUScripts`, `getTRUScriptDetails`.
-
-*Contracts & MagicLock:* `createsmartcontract`, `createcontracttransaction`, `getcontracts`, `createmagiclock`, `unlockmagiclock`, `listmagiclocks`.
-
-*Mining:* `startmining`, `registerminer`, `unregisterminer`, `getminerstatus`, `getallminers`, `reportmineractivity`.
-
-*AI:* `configureAIProvider`, `getAIProviders`, `createAIToken`, `interactWithAIToken`, `getAIResponse`, `getAITokenState`, `trainAIToken`.
-
-*Identity/social:* `createDID`, `createsocialpost`.
-
-*Peers:* `getpeerinfo`.
-
-> **Note:** The RPC server currently performs no authentication. Bind it to localhost or place it behind an authenticated reverse proxy for any non-local deployment.
-
----
-
-## Block Explorer
-
-An HTTP explorer (default port 8001) serves JSON endpoints backed by the chain and a static web front-end:
-
-`/api/stats`, `/api/blocks`, `/block/<hash>`, `/api/addresses`, `/api/transactions`, `/api/address/<addr>`, `/api/transaction/<txid>`, `/api/tokens`, `/api/contracts`, `/api/miners`.
-
-Error responses are emitted as properly escaped JSON. The explorer can run inside the node (`--enable-explorer`) or as the standalone `explorer_main` binary against an existing data directory.
-
----
-
-## Building & Running
-
-**Dependencies:** a C++17 compiler, OpenSSL, libsodium, LevelDB, Protobuf, libwally (BIP32), libcurl, nlohmann/json, cxxopts, httplib, OpenCL (for GPU mining), and Qt (for the GUI, gated behind `BUILD_WITH_QT`).
-
-**Run the node (CLI):**
+## Run the node
 
 ```bash
-./tru_advanced --datadir data/utxo --cli \
-               --rpcport 8332 --enable-explorer --explorer-port 8001
+cd ~/NEW_TRU/build-native/bin
+
+./tru_advanced \
+  --datadir data/utxo \
+  --cli \
+  --rpcport 8332
 ```
 
-Useful flags: `--gui`, `--no-p2p`, `--no-seeds`, `--peers ip:port,...`, `--conf tru.conf`, `--rpcbind <ip>`.
-
-**Mine:**
+With the explorer:
 
 ```bash
-./tru_miner       --address <YOUR_ADDR>   # CPU
-./tru_gpu_miner   --address <YOUR_ADDR>   # GPU (OpenCL)
+./tru_advanced \
+  --datadir data/utxo \
+  --cli \
+  --rpcport 8332 \
+  --enable-explorer \
+  --explorer-port 8001
 ```
 
-**Explorer only:**
+Useful node flags include options for:
+
+- CLI / GUI mode,
+- P2P enable/disable,
+- seed behavior,
+- explicit peers,
+- config file,
+- RPC bind address,
+- explorer.
+
+---
+
+# Docker
+
+TRU can run in containers with its dependencies packaged into the image.
+
+The Docker documentation defines separate roles for:
+
+| Image | Purpose |
+|---|---|
+| `tru-node` | TRU node |
+| `tru-miner-cpu` | standalone CPU miner |
+| `tru-miner-gpu` | OpenCL GPU miner |
+
+Basic node example:
 
 ```bash
-./blockexplorer data/utxo 8001
+docker run -it --name tru-node \
+  -p 8333:8333 \
+  -v tru-data:/app/data \
+  -v "$(pwd)/tru.conf:/app/tru.conf:ro" \
+  tru-node:latest --cli
 ```
 
-Configuration (seeds, addnode, external IP, oracle key) is read from `tru.conf`.
+P2P port `8333` is the public peer port.
 
----
+RPC port `8332` should **not** be exposed publicly.
 
-## Implementation Status
+When RPC must be reachable from the Docker host, bind the service appropriately inside the container but publish it only to host loopback, for example:
 
-TRU is a working chain. The following remain honest placeholders or partial implementations:
-
-- **Oracle-style opcodes** — `OP_EXTERNALDATA` and `OP_DATAFEED` return sample/dummy data. These are intentionally *not* wired to live feeds: a deterministic VM cannot consume non-deterministic external data without every node agreeing on identical bytes, which requires a committed/signed-oracle design (the data included and validated inside the transaction or block), not an opcode stub.
-- **`OP_DELEGATECHECK`** — stubbed (returns false); needs delegate-signature logic.
-- **Token opcodes** — `OP_MINT_TOKEN` is implemented; `OP_TOKEN_BALANCE` and `OP_BURN_TOKEN` are partial.
-- **Cross-chain bridges** — the NOVO and BSTY bridge opcodes are scaffolding for wNOVO/wBSTY, not a live bridge.
-
-Everything else described above — consensus, PoW, UTXO handling, standard scripting, single- and multi-signature verification, deterministic `OP_CHAINSTATECHECK`, tokens, state opcodes, gas, hashing opcodes, P2P, storage, wallets, mining, RPC, and the explorer — is implemented and functioning.
-
----
-## Mining with stand alone
-
+```text
+127.0.0.1:8332:8332
 ```
-./tru_miner --node-ip 127.0.0.1 --node-port 8332 --mineraddr 1CaVjWwXheAm74AKLa3KbyLEWAB5L6s49t
 
-./tru_miner_cpu --node-ip 127.0.0.1 --node-port 8332 --mineraddr 1CaVjWwXheAm74AKLa3KbyLEWAB5L6s49t --threads 4
+Docker Compose profiles can run:
 
+- node only,
+- node + CPU miner,
+- node + GPU miner.
+
+See `README_DOCKER.md` for the full deployment and persistence guide.
+
+---
+
+# Configuration
+
+TRU reads network and node configuration from `tru.conf`.
+
+Example:
+
+```ini
+[network]
+rpcbind=127.0.0.1
+rpcport=8332
+p2pPort=8333
+listen=1
+rpcMaxConnections=32
+externalip=<PUBLIC_OR_LAN_IP>
+addnode=<SEED_IP>:8333
 ```
+
+Important parser behavior:
+
+- avoid spaces after commas in peer lists,
+- put comments on their own lines,
+- current peer configuration expects IP addresses rather than hostnames.
+
+AI-provider API keys should remain in environment variables rather than blockchain state or committed configuration files.
+
+Oracle WIF/private-key material must be protected as wallet credentials.
+
 ---
-## Security Notes
 
-TRU is an independent, single-implementation chain that has not undergone third-party audit or sustained adversarial testing. If you deploy it beyond a controlled/demo environment, be aware:
+# Implementation Status
 
-- **RPC has no authentication.** Keep it on localhost or behind an authenticated proxy.
-- **Wallet key material** is stored on disk; protect the data directory with appropriate file permissions.
-- **Consensus is enforced by one codebase.** A production network benefits from an independent reimplementation to catch divergence, plus a test suite and a public testnet run against hostile peers.
-- **New consensus features** — such as multisig verification — should be exercised on a private testnet (e.g. build and spend a 2-of-3, and confirm that under-signed and wrong-key spends fail) before real value depends on them.
+TRU is a working independent blockchain, but the project intentionally distinguishes implemented functionality from incomplete scaffolding.
 
-Contributions, testing, and review are welcome — this is a living project.
+## Implemented core
+
+- Proof-of-Work consensus
+- UTXO validation and persistence
+- cumulative-work fork choice and reorganizations
+- deterministic difficulty validation
+- CPU mining
+- OpenCL GPU mining
+- mempool admission and double-spend handling
+- P2P transaction/block transport
+- ECDSA signatures
+- ECDSA multisig
+- stateful contract storage
+- gas metering
+- deterministic chain-state reads
+- SHA-256 / SHA3 / BLAKE2b-related script functionality
+- FT / NFT / SFT / NCFT token issuance
+- token ownership/metadata tracking
+- TRUSCRIPT inscriptions and transfers
+- AI provider registry
+- AI request/response anchoring
+- Living Token Evolution and evolution commitments
+- HD wallet functionality
+- interactive responsive node CLI
+- standalone `tru-cli`
+- JSON-RPC server
+- block explorer
+- Docker deployment support
+- size-aware large-block assembly/relay infrastructure
+
+## Partial / intentionally incomplete
+
+- `OP_EXTERNALDATA` — placeholder generic external data
+- `OP_DATAFEED` — placeholder generic data-feed values
+- `OP_DELEGATECHECK` — stub
+- `OP_TOKEN_BALANCE` — partial
+- `OP_BURN_TOKEN` — partial
+- NOVO/BSTY bridge opcodes — bridge scaffolding, not a live production bridge
+
+These items should not be represented as completed production capabilities until their validation and trust models are finished.
 
 ---
 
-*TRU (TrueChain) — a UTXO Proof-of-Work blockchain with extended scripting, multisig, tokens, and on-chain AI.*
+# Security Notes
+
+TRU is still an evolving independent chain and should be treated accordingly.
+
+Current considerations include:
+
+- The chain is primarily enforced by one codebase.
+- It has not yet had the years of adversarial exposure of mature public blockchains.
+- Independent security review and consensus reimplementation would strengthen production readiness.
+- Consensus changes should be tested across multiple nodes before real value depends on them.
+- Large-block settings must be coordinated network-wide.
+- RPC currently has no native HTTP authentication.
+- Wallet and oracle private keys are sensitive local secrets.
+- AI-provider API keys should never be written to chain state or committed to Git.
+- Bridges require substantially more security review before production use.
+- Very large configured block limits must not be confused with benchmarked sustainable throughput.
+
+For public deployments:
+
+```text
+8333/tcp  P2P   -> may be public
+8332/tcp  RPC   -> keep private / authenticated
+8001/tcp  Explorer -> expose only as intended
+```
+
+---
+
+# Scaling Direction
+
+TRU's present architecture provides a foundation for substantially larger L1 blocks, but block size alone is not the end of scaling.
+
+The next major performance areas are:
+
+1. parallel validation of independent UTXO transactions,
+2. more efficient signature-verification batching,
+3. indexed mempool dependency/conflict handling,
+4. streamed/chunked large-block propagation,
+5. incremental decoding rather than giant in-memory payloads,
+6. storage and state-access benchmarking,
+7. multi-node propagation testing,
+8. block validation benchmarks at progressively larger sizes,
+9. P2P Frame V2 for 4 GiB+ transport,
+10. continued fuzzing and adversarial testnet work.
+
+TRU's UTXO model creates a natural path toward parallel validation because independent transactions that consume different UTXOs can be checked concurrently and committed deterministically.
+
+The project should measure real throughput rather than advertise configured block capacity as TPS.
+
+---
+
+# Additional Documentation
+
+More focused documentation is available in the repository:
+
+| File | Purpose |
+|---|---|
+| `README_API.md` | JSON-RPC API reference |
+| `README_DOCKER.md` | Docker/node/miner deployment |
+| `README_OPCODES.md` | Script and opcode reference |
+| `README_TOKENS.md` | FT/NFT/SFT/NCFT token documentation |
+| `TRU_CLI_README.md` | `tru-cli`, `getinfo`, `getbalance`, raw RPC usage |
+
+The top-level README is intended to describe the **current TRU system as a whole**. Feature-specific READMEs should be kept synchronized with the implementation as the protocol evolves.
+
+---
+
+# Project Direction
+
+TRU is being developed around a specific idea:
+
+> **Use a deterministic UTXO Proof-of-Work blockchain as the ownership and settlement layer for programmable real-world utility, native digital assets, and verifiable AI-assisted state.**
+
+The objective is not to make AI itself determine consensus. Instead, TRU provides a deterministic chain where AI-generated activity, evolving token state, ownership, smart-contract execution, and cryptographic commitments can coexist without requiring every validating node to trust or reproduce the same model output.
+
+That combination is the core of **Tokenized Real Utility**.
+
+---
+
+**TRU — Tokenized Real Utility**  
+*UTXO ownership. Proof-of-Work settlement. Stateful contracts. Native assets. Verifiable AI evolution.*
