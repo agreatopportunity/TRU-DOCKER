@@ -8,3 +8,7 @@ automaticReorg=1
 [default]
 node.ip=127.0.0.1
 node.port=21832
+
+[chain]
+chainName=TRUMain
+networkType=mainnet
