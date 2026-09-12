@@ -1,16 +1,137 @@
+# ============================================================================
+# TRU Blockchain —
+#
+#   docker compose up node                  # node, attached (see PASSPHRASE)
+#   docker compose --profile miner up -d    # CPU miner against that node
+#   docker compose --profile gpu   up -d    # GPU miner against that node
+#
+# PASSPHRASE — READ THIS FIRST
+#   encrypted wallets require an interactive unlock. main.cpp checks
+#   isatty(STDIN_FILENO) and prompts. `tty: true` allocates a pty, so the
+#   check PASSES and the node then blocks forever on a read nobody answers.
+#   A restart policy therefore produces a container that reports "Up" and
+#   serves nothing. `restart: "no"` is deliberate. Start the node attached,
+#   type the passphrase, then detach with Ctrl-P Ctrl-Q.
+#
+# FIRST RUN — bootstrap the wallet before using this file. See the runbook
+# ./wallet/ must already contain all three artifacts; Docker
+# creates DIRECTORIES at bind-mount paths that do not exist, and the node
+# then starts in LEGACY_PLAINTEXT and makes a throwaway wallet.
+# ============================================================================
+
 services:
+
+  # -------------------------------------------------------------------------
+  # Headless node — syncs blocks, serves peers, optional explorer.
+  # -------------------------------------------------------------------------
   node:
-    image: ghcr.io/agreatopportunity/tru-node:latest
+    image: ghcr.io/agreatopportunity/tru-node:v2.0.0
     container_name: tru-node
-    restart: unless-stopped
+    working_dir: /app
+
+    # See PASSPHRASE above. Do not change to unless-stopped until a
+    # non-interactive unlock path exists.
+    restart: "no"
+
     ports:
-      - "8333:8333"
+      # P2P — meant to be publicly reachable.
+      - "21833:21833"
+      # JSON-RPC — host loopback ONLY. /rpc has no authentication and sets
+      # Access-Control-Allow-Origin: *, so never map this to 0.0.0.0.
+      # Requires rpcbind=0.0.0.0 in tru.conf to be reachable inside the container.
+      - "127.0.0.1:21832:21832"
+      # Explorer backend — loopback, for a reverse proxy to sit in front of.
+      - "127.0.0.1:8001:8001"
+
     volumes:
       - tru-data:/app/data
       - ./tru.conf:/app/tru.conf:ro
+      # encrypted wallet set. All three must exist on the host first.
+      - ./wallet/wallet_seed.dat.enc:/app/wallet_seed.dat.enc
+      - ./wallet/tru.dat.enc:/app/tru.dat.enc
+      - ./wallet/tru.dat.public:/app/tru.dat.public
+
     stdin_open: true
     tty: true
-    command: ["--cli"]
+
+    command:
+      - "--conf"
+      - "/app/tru.conf"
+      - "--datadir"
+      - "/app/data/utxo"
+      - "--cli"
+      - "--enable-explorer"
+      - "--explorer-port"
+      - "8001"
+
+    healthcheck:
+      # P2P listener is the real liveness signal. start_period is generous
+      # because the node waits at the passphrase prompt.
+      test: ["CMD-SHELL", "ss -ltn | grep -q ':21833' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 180s
+
+  # -------------------------------------------------------------------------
+  # CPU miner (opt-in: --profile miner)
+  #
+  # Miners reach the node over RPC, NOT by sharing chain data. LevelDB allows
+  # a single writer, so they must never mount tru-data. --node-ip uses the
+  # compose service name; tru.conf's node.ip=127.0.0.1 would mean "myself"
+  # inside this container.
+  #
+  # Set MINER_ADDRESS in .env or the environment before starting.
+  # -------------------------------------------------------------------------
+  miner:
+    profiles: ["miner"]
+    image: ghcr.io/agreatopportunity/tru-miner-cpu:v2.0.0
+    container_name: tru-miner-cpu
+    working_dir: /app
+    restart: unless-stopped
+    depends_on:
+      - node
+    volumes:
+      - ./tru.conf:/app/tru.conf:ro
+    command:
+      - "--node-ip"
+      - "tru-node"
+      - "--node-port"
+      - "21832"
+      - "--mineraddr"
+      - "${MINER_ADDRESS:?set MINER_ADDRESS to your TRU payout address}"
+      - "--threads"
+      - "${MINER_THREADS:-4}"
+
+  # -------------------------------------------------------------------------
+  # GPU miner (opt-in: --profile gpu)
+  # Requires the NVIDIA Container Toolkit on the host.
+  # -------------------------------------------------------------------------
+  gpu-miner:
+    profiles: ["gpu"]
+    image: ghcr.io/agreatopportunity/tru-node-gpu:v2.0.0
+    container_name: tru-miner-gpu
+    working_dir: /app
+    restart: unless-stopped
+    depends_on:
+      - node
+    volumes:
+      - ./tru.conf:/app/tru.conf:ro
+    entrypoint: ["/app/tru_miner"]
+    command:
+      - "--node-ip"
+      - "tru-node"
+      - "--node-port"
+      - "21832"
+      - "--mineraddr"
+      - "${MINER_ADDRESS:?set MINER_ADDRESS to your TRU payout address}"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, compute, utility]
 
 volumes:
   tru-data:

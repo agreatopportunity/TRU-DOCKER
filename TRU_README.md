@@ -69,7 +69,7 @@ TRU is not an ERC-20 token, sidechain, or cosmetic Bitcoin fork. It implements i
 | Model | UTXO |
 | Consensus | Nakamoto Proof-of-Work |
 | PoW | `SHA256d + 21E8` |
-| Base unit | 1 TRU = 100,000,000 satoshis |
+| Base unit | 1 TRU = 100,000,000 Atoms |
 | Initial block subsidy | 50 TRU |
 | Halving interval | 210,000 blocks |
 | Target block time | 60 seconds |
@@ -78,8 +78,8 @@ TRU is not an ERC-20 token, sidechain, or cosmetic Bitcoin fork. It implements i
 | Coinbase maturity | 100 blocks |
 | Maximum supply | 21,000,000 TRU |
 | Address format | Base58Check P2PKH |
-| Default RPC port | 8332 |
-| Default P2P port | 8333 |
+| Default RPC port | 21832 |
+| Default P2P port | 21833 |
 | Default explorer port | 8001 |
 
 ### Current staged large-block profile
@@ -417,6 +417,7 @@ The system tracks information such as:
 Wallet and RPC functionality can create, list, inspect, and transfer TRUSCRIPT assets.
 
 ---
+
 # MagicMiner and MagicLock
 
 TRU includes a native **MagicLock** transaction type and a companion **MagicMiner** tool. MagicLock combines ordinary UTXO ownership with a second computational condition: before the locked TRU can be spent, the owner must produce a valid ECDSA signature whose double-SHA256 hash begins with a chosen hexadecimal prefix.
@@ -653,7 +654,6 @@ whose HASH256 begins with the required target?
 That gives TRU a native **proof-conditioned UTXO** primitive that can be used for experiments with computational locks, puzzles, delayed-effort spends, game mechanics, proof challenges, and other applications that combine ownership with configurable computational work.
 
 ---
-
 # AI Oracle
 
 TRU includes a **provider-agnostic AI oracle system**.
@@ -1461,6 +1461,19 @@ The project should measure real throughput rather than advertise configured bloc
 ---
 
 # Additional Documentation
+
+```
+./rebuild.sh
+    → rebuild binaries
+    → NEVER touch wallet
+    → NEVER touch chain
+
+./rebuild.sh --fresh-chain
+    → preserve/enforce wallet backup
+    → archive chain database
+    → create empty chain database
+    → NEVER touch encrypted wallet
+```
 
 More focused documentation is available in the repository:
 

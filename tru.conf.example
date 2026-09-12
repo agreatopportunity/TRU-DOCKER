@@ -1,10 +1,10 @@
-[network]
 rpcbind=0.0.0.0
-rpcport=8332
-p2pPort=8333
+rpcport=21832
+p2pPort=21833
 listen=1
-addnode=137.184.68.43:8333
+addnode=137.184.68.43:21833
+automaticReorg=1
 
 [default]
 node.ip=127.0.0.1
-node.port=8332
+node.port=21832
