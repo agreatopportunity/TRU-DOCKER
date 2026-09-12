@@ -51,13 +51,13 @@ Pick one and set it for the rest of this guide.
 **CPU node:**
 
 ```bash
-TRU_IMAGE="ghcr.io/agreatopportunity/tru-node:v2.0.0"
+TRU_IMAGE="ghcr.io/agreatopportunity/tru-node:v2.0.2"
 ```
 
 **NVIDIA GPU node:**
 
 ```bash
-TRU_IMAGE="ghcr.io/agreatopportunity/tru-node-gpu:v2.0.0"
+TRU_IMAGE="ghcr.io/agreatopportunity/tru-node-gpu:v2.0.2"
 ```
 
 Use a numbered version rather than `latest`. A pinned tag keeps you on that
@@ -94,7 +94,8 @@ Everything in this guide assumes:
 ```bash
 cat > ~/tru/tru.conf << 'EOF'
 [network]
-rpcbind=0.0.0.0
+rpcbind=127.0.0.1
+rpcAllowRemote=0
 rpcport=21832
 p2pPort=21833
 listen=1
@@ -121,7 +122,7 @@ cat ~/tru/tru.conf
 
 | Setting | Meaning |
 | --- | --- |
-| `rpcbind=0.0.0.0` | Lets RPC listen **inside** the container. The `docker run` command below publishes it only to your own machine. |
+| `rpcbind=127.0.0.1` | Lets RPC listen **inside** the container. The `docker run` command below publishes it only to your own machine. |
 | `rpcport=21832` | TRU JSON-RPC port. |
 | `p2pPort=21833` | TRU peer-to-peer port. |
 | `listen=1` | Accept incoming peer connections. |
