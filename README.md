@@ -51,13 +51,13 @@ Pick one and set it for the rest of this guide.
 **CPU node:**
 
 ```bash
-TRU_IMAGE="ghcr.io/agreatopportunity/tru-node:v2.0.2"
+TRU_IMAGE="ghcr.io/agreatopportunity/tru-node:v2.0.3"
 ```
 
 **NVIDIA GPU node:**
 
 ```bash
-TRU_IMAGE="ghcr.io/agreatopportunity/tru-node-gpu:v2.0.2"
+TRU_IMAGE="ghcr.io/agreatopportunity/tru-node-gpu:v2.0.3"
 ```
 
 Use a numbered version rather than `latest`. A pinned tag keeps you on that
@@ -644,7 +644,7 @@ docker rm tru
 Remove the downloaded image:
 
 ```bash
-docker image rm ghcr.io/agreatopportunity/tru-node:v2.0.0
+docker image rm ghcr.io/agreatopportunity/tru-node:v2.0.3
 ```
 
 ### Deleting chain data
@@ -693,7 +693,7 @@ P2P `21833` may be public. RPC `21832` must not be.
 # Quick start for experienced Docker users
 
 ```bash
-TRU_IMAGE="ghcr.io/agreatopportunity/tru-node:v2.0.0"
+TRU_IMAGE="ghcr.io/agreatopportunity/tru-node:v2.0.3"
 mkdir -p ~/tru/wallet && chmod 700 ~/tru/wallet
 
 cat > ~/tru/tru.conf << 'EOF'
