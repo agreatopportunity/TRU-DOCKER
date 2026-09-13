@@ -1,4 +1,4 @@
-rpcbind=0.0.0.0
+rpcbind=127.0.0.1
 rpcport=21832
 p2pPort=21833
 listen=1
