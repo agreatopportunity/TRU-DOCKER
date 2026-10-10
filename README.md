@@ -51,13 +51,13 @@ Pick one and set it for the rest of this guide.
 **CPU node:**
 
 ```bash
-TRU_IMAGE="ghcr.io/agreatopportunity/tru-node:v2.0.8"
+TRU_IMAGE="ghcr.io/tokenizedrealutility/tru-node:v0.08.0"
 ```
 
 **NVIDIA GPU node:**
 
 ```bash
-TRU_IMAGE="ghcr.io/agreatopportunity/tru-node-gpu:v2.0.8"
+TRU_IMAGE="ghcr.io/tokenizedrealutility/tru-node-gpu:v0.08.0"
 ```
 
 Use a numbered version rather than `latest`. A pinned tag keeps you on that
@@ -94,18 +94,37 @@ Everything in this guide assumes:
 ```bash
 cat > ~/tru/tru.conf << 'EOF'
 [network]
-rpcbind=127.0.0.1
-rpcAllowRemote=0
 rpcport=21832
 p2pPort=21833
 listen=1
+rpcbind=127.0.0.1
+rpcAllowRemote=0
+rpcMaxConnections=32
 addnode=137.184.68.43:21833
 automaticReorg=1
-
+# ------------------------------------------------------------
+# Enable Sending TRU from CLI 
+# ------------------------------------------------------------
+#TRU_RPC_WALLET_SEND_ENABLE=1
+#TRU_RPC_WALLET_SEND_MAX_ATOMS=unlimited
+# ------------------------------------------------------------
+# EXTERNAL IP
+# ------------------------------------------------------------
+#externalip=YOUR_IP_HERE
 [default]
 node.ip=127.0.0.1
 node.port=21832
-
+# ------------------------------------------------------------
+# TOKEN EVOLUTION / ORACLE
+# ------------------------------------------------------------
+#oracle.address=TRU_ADDRESS_HERE
+#oracle.wallet=tru.dat
+# ------------------------------------------------------------
+# AI Agent Settings  
+# ------------------------------------------------------------
+[agent_checkpoint]
+#enabled=1
+#policy_file=/path/to/tru-agent-policies/Ai_Agent/policy.json
 [chain]
 chainName=TRUMain
 networkType=mainnet
@@ -122,12 +141,27 @@ cat ~/tru/tru.conf
 
 | Setting | Meaning |
 | --- | --- |
-| `rpcbind=127.0.0.1` | Lets RPC listen **inside** the container. The `docker run` command below publishes it only to your own machine. |
-| `rpcport=21832` | TRU JSON-RPC port. |
-| `p2pPort=21833` | TRU peer-to-peer port. |
-| `listen=1` | Accept incoming peer connections. |
-| `addnode=137.184.68.43:21833` | A public seed node to contact at startup. Without a peer, a new node sits at genesis forever. |
-| `automaticReorg=1` | Lets the node follow the heaviest valid chain. Leave this on. |
+| `[network]` | `rpcport` | Privileged Core JSON-RPC port (default 21832). |
+| `[network]` | `p2pPort` | P2P listening port (default 21833). |
+| `[network]` | `listen` | Enable/disable inbound peer listening (`0` or `1`). |
+| `[network]` | `rpcbind` | Bind address. Keep `127.0.0.1` for ordinary deployments. |
+| `[network]` | `rpcAllowRemote` | Explicit approval required before privileged RPC can bind to a non-loopback address. Do not expose RPC publicly. |
+| `[network]` | `rpcMaxConnections` | Positive value up to 256; default 32. |
+| `[network]` | `addnode` | Comma-separated bootstrap `IP:port` peers. |
+| `[network]` | `seeds` | Alternative/additional bootstrap peer list parsed by P2P initialization. |
+| `[network]` | `externalip` | Advertised external IP where supported by the node startup logic. |
+| `[network]` | `automaticReorg` | Explicitly enables/disables the current multi-node automatic cumulative-work reorganization path. An operationally significant choice, not an agent setting. |
+| `[network]` or `[default]` | `rpcWalletSend` / `TRU_RPC_WALLET_SEND_ENABLE` | Optional local RPC wallet sending (strict `0`/`1`). Default disabled. Use only one spelling/section. |
+| `[network]` or `[default]` | `rpcWalletSendMaxAtoms` / `TRU_RPC_WALLET_SEND_MAX_ATOMS` | Spending cap as a positive number of atoms, or explicitly `unlimited`; do not duplicate. |
+| `[default]` | `node.ip` | RPC host used by the legacy AI oracle service. |
+| `[default]` | `node.port` | RPC port used by the legacy AI oracle service. Set explicitly; a code path otherwise defaults to 8001, which may not be the RPC port. |
+| `[default]` | `peers` | Additional explicit peer argument read by Core startup. |
+| `[default]` | `oracle.address` | Funding identity used by AI-oracle anchoring flows. |
+| `[default]` | `oracle.wallet` | Oracle wallet file/path selector, used by a wallet-backed oracle flow. |
+| `[default]` | `oracle.wif` | Private-key oracle path used by a separate oracle flow. Sensitive; do not publish this in a shared config. |
+| `[agent_checkpoint]` | `enabled` | `0` or `1`; approval policy is disabled by default. |
+| `[agent_checkpoint]` | `policy_file` | Absolute private path to checkpoint authorization/budget policy JSON; required when enabled. |
+
 
 ### Optional — only for publicly reachable nodes
 
@@ -456,7 +490,7 @@ Your wallet and blockchain are untouched.
 # 12. Updating to a newer image
 
 ```bash
-docker pull ghcr.io/agreatopportunity/tru-node:vX.Y.Z
+docker pull ghcr.io/tokenizedrealutility/tru-node:vX.Y.Z
 ```
 
 Check which image the current container uses:
@@ -644,7 +678,7 @@ docker rm tru
 Remove the downloaded image:
 
 ```bash
-docker image rm ghcr.io/agreatopportunity/tru-node:v2.0.8
+docker image rm ghcr.io/tokenizedrealutility/tru-node-gpu:v0.08.0
 ```
 
 ### Deleting chain data
@@ -693,23 +727,42 @@ P2P `21833` may be public. RPC `21832` must not be.
 # Quick start for experienced Docker users
 
 ```bash
-TRU_IMAGE="ghcr.io/agreatopportunity/tru-node:v2.0.8"
+TRU_IMAGE="ghcr.io/tokenizedrealutility/tru-node-gpu:v0.08.0"
 mkdir -p ~/tru/wallet && chmod 700 ~/tru/wallet
 
 cat > ~/tru/tru.conf << 'EOF'
 [network]
-rpcbind=127.0.0.1
 rpcport=21832
 p2pPort=21833
 listen=1
+rpcbind=127.0.0.1
+rpcAllowRemote=0
 rpcMaxConnections=32
 addnode=137.184.68.43:21833
 automaticReorg=1
-
+# ------------------------------------------------------------
+# Enable Sending TRU from CLI 
+# ------------------------------------------------------------
+#TRU_RPC_WALLET_SEND_ENABLE=1
+#TRU_RPC_WALLET_SEND_MAX_ATOMS=unlimited
+# ------------------------------------------------------------
+# EXTERNAL IP
+# ------------------------------------------------------------
+#externalip=YOUR_IP_HERE
 [default]
 node.ip=127.0.0.1
 node.port=21832
-
+# ------------------------------------------------------------
+# TOKEN EVOLUTION / ORACLE
+# ------------------------------------------------------------
+#oracle.address=TRU_ADDRESS_HERE
+#oracle.wallet=tru.dat
+# ------------------------------------------------------------
+# AI Agent Settings  
+# ------------------------------------------------------------
+[agent_checkpoint]
+#enabled=1
+#policy_file=/path/to/tru-agent-policies/Ai_Agent/policy.json
 [chain]
 chainName=TRUMain
 networkType=mainnet

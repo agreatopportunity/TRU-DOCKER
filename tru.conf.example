@@ -1,14 +1,69 @@
-rpcbind=127.0.0.1
+# ============================================================
+# TRU Blockchain Configuration Example
+# ============================================================
+[network]
+
+# RPC port used by local miners/tools.
 rpcport=21832
+
+# P2P blockchain networking port.
 p2pPort=21833
+
+# Accept incoming P2P connections.
 listen=1
+
+# ------------------------------------------------------------
+# RPC BIND
+# ------------------------------------------------------------
+rpcbind=127.0.0.1
+
+rpcAllowRemote=0
+
+# Maximum number of RPC connections (default: 32)
+rpcMaxConnections=32
+
+# ------------------------------------------------------------
+# STARTUP PEER / SEED
+# ------------------------------------------------------------
 addnode=137.184.68.43:21833
+
+# Required multinode/reorg activation
 automaticReorg=1
 
+# ------------------------------------------------------------
+# Enable Sending TRU from CLI 
+# ------------------------------------------------------------
+#TRU_RPC_WALLET_SEND_ENABLE=1
+#TRU_RPC_WALLET_SEND_MAX_ATOMS=unlimited
+
+# ------------------------------------------------------------
+# EXTERNAL IP
+# ------------------------------------------------------------
+#externalip=YOUR_IP_HERE
+
 [default]
+
+# Local RPC address used by TRU miners/oracle components.
 node.ip=127.0.0.1
 node.port=21832
 
+# ------------------------------------------------------------
+# TOKEN EVOLUTION / ORACLE
+# ------------------------------------------------------------
+
+#oracle.address=TRU_ADDRESS_HERE
+#oracle.wallet=tru.dat
+
+# ------------------------------------------------------------
+# AI Agent Settings  
+# ------------------------------------------------------------
+[agent_checkpoint]
+#enabled=1
+#policy_file=/path/to/tru-agent-policies/Ai_Agent_Name/policy.json
+
+# ===========================================================================
 [chain]
+# Name of the blockchain (default: TRUMain)
 chainName=TRUMain
+# Network type: mainnet, testnet, regtest (default: mainnet)
 networkType=mainnet
